@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}{{ club.name }} — Bootlegger{% endblock %}
+{% block content %}
+<div class="page-head" style="--accent: {{ accent }}">
+  <div>
+    <span class="eyebrow eyebrow-accent">Book club</span>
+    <h1>{{ club.name }}</h1>
+    {% if club.description %}<p class="muted">{{ club.description }}</p>{% endif %}
+  </div>
+  {% if is_admin %}
+  <div class="btn-row">
+    <a class="btn btn-brass" href="{{ url_for('book_new', club_id=club.id) }}">+ Add book</a>
+    <a class="btn" href="{{ url_for('club_edit', club_id=club.id) }}">Edit club</a>
+    <form method="post" action="{{ url_for('club_delete', club_id=club.id) }}"
+          onsubmit="return confirm('Delete this club and all of its books?')">
+      <button class="btn btn-danger" type="submit">Delete</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<section class="section">
+  <h2 class="section-title">Now reading</h2>
+  {% if current %}
+  <div class="current-book" style="--accent: {{ accent }}">
+    {% if current.cover_url %}
+      <img class="cover cover-lg" src="{{ current.cover_url }}" alt="Cover of {{ current.title }}">
+    {% else %}
+      <div class="cover cover-lg cover-blank"><span>{{ current.title[:1] }}</span></div>
+    {% endif %}
+    <div class="current-book-info">
+      <h3 class="book-title-lg">{{ current.title }}</h3>
+      <p class="book-author-lg">{{ current.author }}</p>
+      <p class="portion-line">{{ current.portion if current.portion else "Reading the whole book" }}</p>
+      <dl class="date-list">
+        {% if current.due_date %}<div><dt>Finish by</dt><dd>{{ current.due_date|pretty_date }}</dd></div>{% endif %}
+        {% if current.meeting_date %}<div><dt>Meeting</dt><dd>{{ current.meeting_date|pretty_date }}</dd></div>{% endif %}
+      </dl>
+      {% if is_admin %}
+      <div class="btn-row">
+        <form method="post" action="{{ url_for('book_action', book_id=current.id) }}">
+          <input type="hidden" name="action" value="finish">
+          <button class="btn btn-brass" type="submit">Mark finished</button>
+        </form>
+        <a class="btn" href="{{ url_for('book_edit', book_id=current.id) }}">Edit</a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">No current book. {% if is_admin %}Add one, or promote a book from the queue below.{% endif %}</p>
+  {% endif %}
+</section>
+
+<section class="section">
+  <h2 class="section-title">Up next</h2>
+  {% if upcoming %}
+  <ol class="book-list">
+    {% for b in upcoming %}
+    <li class="book-row">
+      {% if b.cover_url %}
+        <img class="cover cover-xs" src="{{ b.cover_url }}" alt="" loading="lazy">
+      {% else %}
+        <div class="cover cover-xs cover-blank"><span>{{ b.title[:1] }}</span></div>
+      {% endif %}
+      <div class="book-row-info">
+        <strong class="book-title">{{ b.title }}</strong>
+        <span class="book-author">{{ b.author }}</span>
+        {% if b.portion %}<span class="portion-chip">{{ b.portion }}</span>{% endif %}
+        <div class="date-line">
+          {% if b.due_date %}<span class="date-chip date-due">Finish by {{ b.due_date|short_date }}</span>{% endif %}
+          {% if b.meeting_date %}<span class="date-chip date-meet">Meets {{ b.meeting_date|short_date }}</span>{% endif %}
+        </div>
+      </div>
+      {% if is_admin %}
+      <div class="book-row-actions">
+        <form method="post" action="{{ url_for('book_action', book_id=b.id) }}"><input type="hidden" name="action" value="up"><button class="btn btn-icon" title="Move up" {{ 'disabled' if loop.first }}>&uarr;</button></form>
+        <form method="post" action="{{ url_for('book_action', book_id=b.id) }}"><input type="hidden" name="action" value="down"><button class="btn btn-icon" title="Move down" {{ 'disabled' if loop.last }}>&darr;</button></form>
+        <form method="post" action="{{ url_for('book_action', book_id=b.id) }}"><input type="hidden" name="action" value="make_current"><button class="btn">Make current</button></form>
+        <a class="btn" href="{{ url_for('book_edit', book_id=b.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('book_action', book_id=b.id) }}" onsubmit="return confirm('Remove this book?')"><input type="hidden" name="action" value="delete"><button class="btn btn-danger btn-icon" title="Delete">&times;</button></form>
+      </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="muted">Nothing queued up yet.</p>
+  {% endif %}
+</section>
+
+<section class="section">
+  <h2 class="section-title">Previously read</h2>
+  {% if past %}
+  <ul class="book-list book-list-past">
+    {% for b in past %}
+    <li class="book-row">
+      {% if b.cover_url %}
+        <img class="cover cover-xs" src="{{ b.cover_url }}" alt="" loading="lazy">
+      {% else %}
+        <div class="cover cover-xs cover-blank"><span>{{ b.title[:1] }}</span></div>
+      {% endif %}
+      <div class="book-row-info">
+        <strong class="book-title">{{ b.title }}</strong>
+        <span class="book-author">{{ b.author }}</span>
+        {% if b.meeting_date %}<span class="muted small">Discussed {{ b.meeting_date|short_date }}</span>{% endif %}
+      </div>
+      {% if is_admin %}
+      <div class="book-row-actions">
+        <form method="post" action="{{ url_for('book_action', book_id=b.id) }}"><input type="hidden" name="action" value="requeue"><button class="btn">Re-queue</button></form>
+        <form method="post" action="{{ url_for('book_action', book_id=b.id) }}" onsubmit="return confirm('Remove this book?')"><input type="hidden" name="action" value="delete"><button class="btn btn-danger btn-icon" title="Delete">&times;</button></form>
+      </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No finished books yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Admin login — Bootlegger{% endblock %}
+{% block content %}
+<div class="form-card form-card-narrow">
+  <span class="eyebrow eyebrow-accent">Members only</span>
+  <h1>Admin login</h1>
+  <p class="muted">Only the admin needs to log in. Everyone else can browse freely.</p>
+  <form method="post">
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autocomplete="current-password" autofocus required>
+    <button class="btn btn-brass btn-wide" type="submit">Log in</button>
+  </form>
+</div>
+{% endblock %}

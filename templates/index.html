@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <h1>The Clubs</h1>
+  {% if is_admin %}
+    <a class="btn btn-brass" href="{{ url_for('club_new') }}">+ New club</a>
+  {% endif %}
+</div>
+
+{% if not cards %}
+  <div class="empty">
+    <p>No clubs yet.</p>
+    {% if is_admin %}
+      <p><a class="btn btn-brass" href="{{ url_for('club_new') }}">Create the first club</a></p>
+    {% else %}
+      <p class="muted">The admin can log in and create one.</p>
+    {% endif %}
+  </div>
+{% endif %}
+
+<div class="club-grid">
+  {% for c in cards %}
+  <a class="club-card" href="{{ url_for('club_detail', club_id=c.club.id) }}" style="--accent: {{ c.accent }}">
+    <div class="club-card-head">
+      <h2>{{ c.club.name }}</h2>
+      {% if c.club.description %}<p class="muted">{{ c.club.description }}</p>{% endif %}
+    </div>
+    {% if c.current %}
+      <div class="club-card-book">
+        {% if c.current.cover_url %}
+          <img class="cover cover-sm" src="{{ c.current.cover_url }}" alt="" loading="lazy">
+        {% else %}
+          <div class="cover cover-sm cover-blank"><span>{{ c.current.title[:1] }}</span></div>
+        {% endif %}
+        <div>
+          <span class="eyebrow">Now reading</span>
+          <strong class="book-title">{{ c.current.title }}</strong>
+          <span class="book-author">{{ c.current.author }}</span>
+          {% if c.current.portion %}<span class="portion-chip">{{ c.current.portion }}</span>{% endif %}
+          <div class="date-line">
+            {% if c.current.due_date %}<span class="date-chip date-due">Finish by {{ c.current.due_date|short_date }}</span>{% endif %}
+            {% if c.current.meeting_date %}<span class="date-chip date-meet">Meets {{ c.current.meeting_date|short_date }}</span>{% endif %}
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <p class="muted club-card-nobook">Nothing on the shelf yet.</p>
+    {% endif %}
+    <div class="club-card-foot">
+      {% if c.next_up %}
+        <span class="eyebrow">Up next</span> {{ c.next_up.title }}
+        {% if c.queue_len > 1 %}<span class="muted">(+{{ c.queue_len - 1 }} more queued)</span>{% endif %}
+      {% else %}
+        <span class="muted">Queue is empty</span>
+      {% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

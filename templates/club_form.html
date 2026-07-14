@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit club' if club else 'New club' }} — Bootlegger{% endblock %}
+{% block content %}
+<div class="form-card">
+  <h1>{{ 'Edit club' if club else 'New club' }}</h1>
+  <form method="post">
+    <label for="name">Club name</label>
+    <input type="text" id="name" name="name" required maxlength="100"
+           value="{{ club.name if club else '' }}" placeholder="e.g. Sunday Night Sippers">
+
+    <label for="description">Description <span class="muted">(optional)</span></label>
+    <textarea id="description" name="description" rows="3" maxlength="300"
+              placeholder="Who's in it, where you meet, the vibe…">{{ club.description if club else '' }}</textarea>
+
+    <div class="btn-row">
+      <button class="btn btn-brass" type="submit">{{ 'Save changes' if club else 'Create club' }}</button>
+      <a class="btn" href="{{ url_for('club_detail', club_id=club.id) if club else url_for('home') }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

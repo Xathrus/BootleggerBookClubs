@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bootlegger — Display</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Limelight&family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="signage-body">
+  <div id="signage-root">
+    <header class="signage-head">
+      <div class="signage-rule"></div>
+      <h1 class="signage-wordmark">Bootlegger</h1>
+      <p class="signage-sub">{{ now }} &mdash; what we're reading</p>
+      <div class="signage-rule"></div>
+    </header>
+
+    {% if boards %}
+    <div class="signage-grid signage-count-{{ boards|length if boards|length <= 4 else 'many' }}">
+      {% for b in boards %}
+      <article class="board" style="--accent: {{ b.accent }}">
+        <div class="board-corner tl"></div><div class="board-corner tr"></div>
+        <div class="board-corner bl"></div><div class="board-corner br"></div>
+        <h2 class="board-club">{{ b.club.name }}</h2>
+        {% if b.current %}
+        <div class="board-current">
+          {% if b.current.cover_url %}
+            <img class="board-cover" src="{{ b.current.cover_url }}" alt="">
+          {% endif %}
+          <div class="board-book">
+            <p class="board-title">{{ b.current.title }}</p>
+            <p class="board-author">{{ b.current.author }}</p>
+            {% if b.current.portion %}<p class="board-portion">{{ b.current.portion }}</p>{% endif %}
+          </div>
+        </div>
+        <div class="board-dates">
+          {% if b.current.due_date %}
+            <div class="board-date"><span class="board-date-label">Finish by</span><span class="board-date-value">{{ b.current.due_date|pretty_date }}</span></div>
+          {% endif %}
+          {% if b.current.meeting_date %}
+            <div class="board-date"><span class="board-date-label">Meeting</span><span class="board-date-value">{{ b.current.meeting_date|pretty_date }}</span></div>
+          {% endif %}
+        </div>
+        {% else %}
+        <p class="board-idle">Between books</p>
+        {% endif %}
+        <p class="board-next">
+          {% if b.next_up %}<span>Up next:</span> {{ b.next_up.title }}{% if b.next_up.author %} &middot; {{ b.next_up.author }}{% endif %}
+          {% else %}<span>Up next:</span> to be decided{% endif %}
+        </p>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="board-idle" style="text-align:center">No clubs yet — check back soon.</p>
+    {% endif %}
+  </div>
+
+  <script>
+    // Quietly refresh the content every 5 minutes so the display stays
+    // current without anyone touching it (no visible page flash).
+    setInterval(async () => {
+      try {
+        const resp = await fetch(window.location.href, { cache: 'no-store' });
+        if (!resp.ok) return;
+        const html = await resp.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const fresh = doc.getElementById('signage-root');
+        if (fresh) document.getElementById('signage-root').replaceWith(fresh);
+      } catch (e) { /* offline blip — try again next cycle */ }
+    }, 5 * 60 * 1000);
+  </script>
+</body>
+</html>

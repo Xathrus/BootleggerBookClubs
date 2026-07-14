@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Calendar — Bootlegger{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Calendar</h1>
+  <div class="cal-nav">
+    <a class="btn" href="{{ url_for('calendar_view', y=prev_y, m=prev_m) }}">&larr;</a>
+    <span class="cal-month">{{ month_label }}</span>
+    <a class="btn" href="{{ url_for('calendar_view', y=next_y, m=next_m) }}">&rarr;</a>
+  </div>
+</div>
+
+<div class="cal-legend">
+  <span class="date-chip date-due">&#9679; Finish-by date</span>
+  <span class="date-chip date-meet">&#9679; Meeting</span>
+</div>
+
+<div class="cal-grid-wrap">
+  <table class="cal-grid">
+    <thead>
+      <tr>
+        <th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for week in weeks %}
+      <tr>
+        {% for cell in week %}
+        {% if cell %}
+        <td class="{{ 'cal-today' if cell.iso == today }}">
+          <span class="cal-day">{{ cell.day }}</span>
+          {% for ev in cell.events %}
+          <a class="cal-event cal-{{ ev.kind }}" style="--accent: {{ ev.accent }}"
+             href="{{ url_for('club_detail', club_id=ev.club_id) }}"
+             title="{{ ev.club }}: {{ ev.title }} ({{ 'finish by' if ev.kind == 'due' else 'meeting' }})">
+            <span class="cal-dot"></span>{{ ev.title }}
+          </a>
+          {% endfor %}
+        </td>
+        {% else %}
+        <td class="cal-empty"></td>
+        {% endif %}
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<section class="section cal-list">
+  <h2 class="section-title">This month at a glance</h2>
+  {% if month_events %}
+  <ul class="agenda">
+    {% for iso, ev in month_events %}
+    <li style="--accent: {{ ev.accent }}">
+      <span class="agenda-date">{{ iso|short_date }}</span>
+      <span class="cal-dot"></span>
+      <span class="agenda-body">
+        <strong>{{ ev.club }}</strong> — {{ ev.title }}
+        <em class="muted">{{ 'finish by this date' if ev.kind == 'due' else 'club meeting' }}</em>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Nothing scheduled this month.</p>
+  {% endif %}
+</section>
+{% endblock %}

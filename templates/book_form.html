@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit book' if book else 'Add book' }} — Bootlegger{% endblock %}
+{% block content %}
+<div class="form-card">
+  <span class="eyebrow eyebrow-accent">{{ club.name }}</span>
+  <h1>{{ 'Edit book' if book else 'Add a book' }}</h1>
+
+  {% if not book %}
+  <div class="search-block">
+    <label for="book-search">Search the library <span class="muted">(auto-fills title, author &amp; cover)</span></label>
+    <input type="search" id="book-search" placeholder="Type a title or author, e.g. East of Eden"
+           autocomplete="off">
+    <div id="search-status" class="muted small" hidden></div>
+    <ul id="search-results" class="search-results" hidden></ul>
+  </div>
+  <div class="form-divider"><span>or fill in by hand</span></div>
+  {% endif %}
+
+  <form method="post">
+    <label for="title">Title</label>
+    <input type="text" id="title" name="title" required maxlength="300"
+           value="{{ book.title if book else '' }}">
+
+    <label for="author">Author</label>
+    <input type="text" id="author" name="author" maxlength="200"
+           value="{{ book.author if book else '' }}">
+
+    <label for="cover_url">Cover image URL <span class="muted">(optional)</span></label>
+    <input type="url" id="cover_url" name="cover_url" maxlength="500"
+           value="{{ book.cover_url if book else '' }}" placeholder="https://…">
+    <img id="cover-preview" class="cover cover-sm cover-preview"
+         src="{{ book.cover_url if book and book.cover_url else '' }}"
+         alt="Cover preview" {{ '' if book and book.cover_url else 'hidden' }}>
+
+    <div class="form-grid">
+      <div>
+        <label for="due_date">Finish by <span class="muted">(due date)</span></label>
+        <input type="date" id="due_date" name="due_date" value="{{ book.due_date if book and book.due_date else '' }}">
+      </div>
+      <div>
+        <label for="meeting_date">Meeting date</label>
+        <input type="date" id="meeting_date" name="meeting_date" value="{{ book.meeting_date if book and book.meeting_date else '' }}">
+      </div>
+    </div>
+
+    <label for="portion">Portion to read <span class="muted">(leave blank for the whole book)</span></label>
+    <input type="text" id="portion" name="portion" maxlength="120"
+           value="{{ book.portion if book else '' }}" placeholder="e.g. Chapters 1–10, or pages 1–150">
+
+    <label for="status">Where does it go?</label>
+    <select id="status" name="status">
+      <option value="upcoming" {{ 'selected' if not book or book.status == 'upcoming' }}>Up next (queue)</option>
+      <option value="current" {{ 'selected' if book and book.status == 'current' }}>Current book</option>
+      {% if book %}<option value="past" {{ 'selected' if book.status == 'past' }}>Previously read</option>{% endif %}
+    </select>
+
+    <div class="btn-row">
+      <button class="btn btn-brass" type="submit">{{ 'Save changes' if book else 'Add book' }}</button>
+      <a class="btn" href="{{ url_for('club_detail', club_id=club.id) }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/booksearch.js') }}"></script>
+{% endblock %}
