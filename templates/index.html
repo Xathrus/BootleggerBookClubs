@@ -1,19 +1,38 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-head">
-  <h1>The Clubs</h1>
+  <h1>{{ person.name + "'s clubs" if person else "The Clubs" }}</h1>
   {% if is_admin %}
-    <a class="btn btn-brass" href="{{ url_for('club_new') }}">+ New club</a>
+    <div class="btn-row">
+      <a class="btn btn-brass" href="{{ url_for('club_new') }}">+ New club</a>
+      <a class="btn" href="{{ url_for('people_admin') }}">People</a>
+    </div>
   {% endif %}
 </div>
 
+{% if people %}
+<div class="people-filter">
+  <span class="eyebrow">Reader</span>
+  <a class="person-chip {{ 'person-chip-on' if not person }}" href="{{ url_for('home') }}">Everyone</a>
+  {% for p in people %}
+    <a class="person-chip {{ 'person-chip-on' if person and person.id == p.id }}"
+       href="{{ url_for('home', person=p.id) }}">{{ p.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if not cards %}
   <div class="empty">
-    <p>No clubs yet.</p>
-    {% if is_admin %}
-      <p><a class="btn btn-brass" href="{{ url_for('club_new') }}">Create the first club</a></p>
+    {% if person %}
+      <p>{{ person.name }} isn't in any clubs yet.</p>
+      <p class="muted"><a href="{{ url_for('home') }}">Show everyone</a></p>
     {% else %}
-      <p class="muted">The admin can log in and create one.</p>
+      <p>No clubs yet.</p>
+      {% if is_admin %}
+        <p><a class="btn btn-brass" href="{{ url_for('club_new') }}">Create the first club</a></p>
+      {% else %}
+        <p class="muted">The admin can log in and create one.</p>
+      {% endif %}
     {% endif %}
   </div>
 {% endif %}
@@ -24,6 +43,9 @@
     <div class="club-card-head">
       <h2>{{ c.club.name }}</h2>
       {% if c.club.description %}<p class="muted">{{ c.club.description }}</p>{% endif %}
+      {% if c.members %}
+        <p class="member-line">{% for m in c.members %}{{ m.name }}{{ " · " if not loop.last }}{% endfor %}</p>
+      {% endif %}
     </div>
     {% if c.current %}
       <div class="club-card-book">
@@ -36,10 +58,15 @@
           <span class="eyebrow">Now reading</span>
           <strong class="book-title">{{ c.current.title }}</strong>
           <span class="book-author">{{ c.current.author }}</span>
-          {% if c.current.portion %}<span class="portion-chip">{{ c.current.portion }}</span>{% endif %}
+          {% if c.current.next_section %}
+            <span class="portion-chip">Next: {{ c.current.next_section.portion or 'next section' }}</span>
+          {% elif c.current.portion %}
+            <span class="portion-chip">{{ c.current.portion }}</span>
+          {% endif %}
           <div class="date-line">
-            {% if c.current.due_date %}<span class="date-chip date-due">Finish by {{ c.current.due_date|short_date }}</span>{% endif %}
-            {% if c.current.meeting_date %}<span class="date-chip date-meet">Meets {{ c.current.meeting_date|short_date }}</span>{% endif %}
+            {% if c.current.next_date %}
+              <span class="date-chip date-meet">Meets {{ c.current.next_date|short_date }}</span>
+            {% endif %}
           </div>
         </div>
       </div>

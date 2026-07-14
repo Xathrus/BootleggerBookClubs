@@ -6,6 +6,11 @@
     <span class="eyebrow eyebrow-accent">Book club</span>
     <h1>{{ club.name }}</h1>
     {% if club.description %}<p class="muted">{{ club.description }}</p>{% endif %}
+    {% if members %}
+      <p class="member-line">
+        {% for m in members %}<a class="person-chip" href="{{ url_for('home', person=m.id) }}">{{ m.name }}</a>{% endfor %}
+      </p>
+    {% endif %}
   </div>
   {% if is_admin %}
   <div class="btn-row">
@@ -31,11 +36,29 @@
     <div class="current-book-info">
       <h3 class="book-title-lg">{{ current.title }}</h3>
       <p class="book-author-lg">{{ current.author }}</p>
-      <p class="portion-line">{{ current.portion if current.portion else "Reading the whole book" }}</p>
-      <dl class="date-list">
-        {% if current.due_date %}<div><dt>Finish by</dt><dd>{{ current.due_date|pretty_date }}</dd></div>{% endif %}
-        {% if current.meeting_date %}<div><dt>Meeting</dt><dd>{{ current.meeting_date|pretty_date }}</dd></div>{% endif %}
-      </dl>
+
+      {% if current.sections %}
+        <table class="section-table">
+          <thead><tr><th>Meeting</th><th>Reading due</th></tr></thead>
+          <tbody>
+            {% for s in current.sections %}
+            <tr class="{{ 'section-next' if current.next_section and s.id == current.next_section.id }}
+                       {{ 'section-done' if s.meet_date < today }}">
+              <td>{{ s.meet_date|pretty_date }}</td>
+              <td>{{ s.portion or 'Next section' }}
+                {% if current.next_section and s.id == current.next_section.id %}<span class="next-tag">next</span>{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="portion-line">{{ current.portion if current.portion else "Reading the whole book" }}</p>
+        <dl class="date-list">
+          {% if current.meeting_date %}<div><dt>Meeting</dt><dd>{{ current.meeting_date|pretty_date }}</dd></div>{% endif %}
+        </dl>
+      {% endif %}
+
       {% if is_admin %}
       <div class="btn-row">
         <form method="post" action="{{ url_for('book_action', book_id=current.id) }}">
@@ -66,10 +89,13 @@
       <div class="book-row-info">
         <strong class="book-title">{{ b.title }}</strong>
         <span class="book-author">{{ b.author }}</span>
-        {% if b.portion %}<span class="portion-chip">{{ b.portion }}</span>{% endif %}
+        {% if b.sections %}
+          <span class="portion-chip">{{ b.sections|length }} meetings</span>
+        {% elif b.portion %}
+          <span class="portion-chip">{{ b.portion }}</span>
+        {% endif %}
         <div class="date-line">
-          {% if b.due_date %}<span class="date-chip date-due">Finish by {{ b.due_date|short_date }}</span>{% endif %}
-          {% if b.meeting_date %}<span class="date-chip date-meet">Meets {{ b.meeting_date|short_date }}</span>{% endif %}
+          {% if b.next_date %}<span class="date-chip date-meet">{{ 'Starts' if b.sections else 'Meets' }} {{ b.next_date|short_date }}</span>{% endif %}
         </div>
       </div>
       {% if is_admin %}
@@ -103,7 +129,7 @@
       <div class="book-row-info">
         <strong class="book-title">{{ b.title }}</strong>
         <span class="book-author">{{ b.author }}</span>
-        {% if b.meeting_date %}<span class="muted small">Discussed {{ b.meeting_date|short_date }}</span>{% endif %}
+        {% if b.next_date %}<span class="muted small">Discussed {{ b.next_date|short_date }}</span>{% endif %}
       </div>
       {% if is_admin %}
       <div class="book-row-actions">

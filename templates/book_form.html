@@ -32,20 +32,37 @@
          src="{{ book.cover_url if book and book.cover_url else '' }}"
          alt="Cover preview" {{ '' if book and book.cover_url else 'hidden' }}>
 
-    <div class="form-grid">
-      <div>
-        <label for="due_date">Finish by <span class="muted">(due date)</span></label>
-        <input type="date" id="due_date" name="due_date" value="{{ book.due_date if book and book.due_date else '' }}">
-      </div>
-      <div>
-        <label for="meeting_date">Meeting date</label>
-        <input type="date" id="meeting_date" name="meeting_date" value="{{ book.meeting_date if book and book.meeting_date else '' }}">
-      </div>
+    <div class="check-row">
+      <input type="checkbox" id="sectioned" name="sectioned"
+             {{ 'checked' if sections }}>
+      <label for="sectioned">This book is split across several meetings</label>
     </div>
 
-    <label for="portion">Portion to read <span class="muted">(leave blank for the whole book)</span></label>
-    <input type="text" id="portion" name="portion" maxlength="120"
-           value="{{ book.portion if book else '' }}" placeholder="e.g. Chapters 1–10, or pages 1–150">
+    <div id="single-meeting" {{ 'hidden' if sections }}>
+      <label for="meeting_date">Meeting date</label>
+      <input type="date" id="meeting_date" name="meeting_date"
+             value="{{ book.meeting_date if book and book.meeting_date else '' }}">
+
+      <label for="portion">Portion to read <span class="muted">(leave blank for the whole book)</span></label>
+      <input type="text" id="portion" name="portion" maxlength="120"
+             value="{{ book.portion if book else '' }}" placeholder="e.g. Chapters 1–10, or pages 1–150">
+    </div>
+
+    <div id="sections-editor" {{ '' if sections else 'hidden' }}>
+      <label>Sections <span class="muted">(a meeting date and the chapters due for each)</span></label>
+      <div id="section-rows">
+        {% for s in sections %}
+        <div class="section-row">
+          <input type="date" name="section_date" value="{{ s.meet_date }}">
+          <input type="text" name="section_portion" value="{{ s.portion }}"
+                 maxlength="120" placeholder="e.g. Chapters 1–5">
+          <button type="button" class="btn btn-danger btn-icon section-remove" title="Remove section">&times;</button>
+        </div>
+        {% endfor %}
+      </div>
+      <button type="button" class="btn" id="add-section">+ Add a section</button>
+      <p class="muted small">Sections are saved in date order automatically.</p>
+    </div>
 
     <label for="status">Where does it go?</label>
     <select id="status" name="status">
@@ -64,4 +81,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/booksearch.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sections.js') }}"></script>
 {% endblock %}

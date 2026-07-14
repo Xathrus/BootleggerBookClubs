@@ -3,8 +3,8 @@ Bootlegger Book Club Tracker
 A small self-hosted hub for tracking books across multiple book clubs.
 
 - Public, read-only pages for everyone (home, club pages, calendar, /display signage)
-- One admin login (ADMIN_PASSWORD env var) for creating clubs, adding books, setting dates
-- SQLite database stored in ./data/bootlegger.db
+- One admin login (ADMIN_PASSWORD env var) for clubs, books, people, dates
+- SQLite database stored in ./data/bootlegger.db (migrations run automatically)
 - Book search powered by the Open Library API (free, no API key)
 """
 
@@ -58,7 +58,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 CLUB_ACCENTS = ["#B08D3E", "#7A2E2A", "#3E5F4B", "#5B4A78", "#8C6239", "#2F5D6B"]
 
 # --------------------------------------------------------------------------
-# Database helpers
+# Database helpers + migrations
 # --------------------------------------------------------------------------
 
 SCHEMA = """
@@ -75,8 +75,7 @@ CREATE TABLE IF NOT EXISTS books (
     title        TEXT NOT NULL,
     author       TEXT NOT NULL DEFAULT '',
     cover_url    TEXT NOT NULL DEFAULT '',
-    due_date     TEXT,                -- ISO date: finish reading by
-    meeting_date TEXT,                -- ISO date: club discussion
+    meeting_date TEXT,                -- ISO date; NULL when book is split into sections
     portion      TEXT NOT NULL DEFAULT '',  -- e.g. "Chapters 1-10"; empty = whole book
     status       TEXT NOT NULL DEFAULT 'upcoming'
                  CHECK (status IN ('current', 'upcoming', 'past')),
@@ -86,6 +85,30 @@ CREATE TABLE IF NOT EXISTS books (
 );
 
 CREATE INDEX IF NOT EXISTS idx_books_club_status ON books (club_id, status, queue_pos);
+
+-- People who belong to clubs (names only — no accounts, no logins)
+CREATE TABLE IF NOT EXISTS people (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS club_people (
+    club_id   INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    PRIMARY KEY (club_id, person_id)
+);
+
+-- For books read across several meetings: one row per section
+CREATE TABLE IF NOT EXISTS book_sections (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id   INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    meet_date TEXT NOT NULL,          -- ISO date for this section's meeting
+    portion   TEXT NOT NULL DEFAULT '',  -- e.g. "Chapters 1-5"
+    position  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_sections_book ON book_sections (book_id, meet_date);
 """
 
 
@@ -107,6 +130,17 @@ def close_db(_exc):
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA)
+
+    # Migration: earlier versions had a separate due_date on books.
+    # Meeting date is now the only date; keep whichever value exists.
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(books)").fetchall()]
+    if "due_date" in cols:
+        conn.execute("UPDATE books SET meeting_date = COALESCE(meeting_date, due_date)")
+        try:
+            conn.execute("ALTER TABLE books DROP COLUMN due_date")
+        except sqlite3.OperationalError:
+            pass  # very old SQLite: the column simply goes unused
+
     conn.commit()
     conn.close()
 
@@ -176,6 +210,34 @@ def fetch_club_or_404(club_id: int) -> sqlite3.Row:
     return club
 
 
+def book_sections_for(book_id: int) -> list[dict]:
+    rows = get_db().execute(
+        "SELECT * FROM book_sections WHERE book_id = ? ORDER BY meet_date, position",
+        (book_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def enrich_book(row) -> dict | None:
+    """Turn a book row into a dict with its sections, the next section that
+    hasn't been discussed yet, and a single 'next_date' used for sorting
+    and display everywhere."""
+    if row is None:
+        return None
+    book = dict(row)
+    sections = book_sections_for(book["id"])
+    book["sections"] = sections
+    today_iso = date.today().isoformat()
+    nxt = next((s for s in sections if s["meet_date"] >= today_iso), None)
+    book["next_section"] = nxt
+    if sections:
+        book["next_date"] = nxt["meet_date"] if nxt else sections[-1]["meet_date"]
+        book["all_sections_done"] = nxt is None
+    else:
+        book["next_date"] = book["meeting_date"]
+        book["all_sections_done"] = False
+    return book
+
+
 def club_books(club_id: int):
     db = get_db()
     current = db.execute(
@@ -188,7 +250,39 @@ def club_books(club_id: int):
         "SELECT * FROM books WHERE club_id = ? AND status = 'past' "
         "ORDER BY COALESCE(finished_at, created_at) DESC, id DESC",
         (club_id,)).fetchall()
-    return current, upcoming, past
+    return (enrich_book(current),
+            [enrich_book(b) for b in upcoming],
+            [enrich_book(b) for b in past])
+
+
+def club_members(club_id: int) -> list[dict]:
+    rows = get_db().execute(
+        """SELECT p.* FROM people p
+           JOIN club_people cp ON cp.person_id = p.id
+           WHERE cp.club_id = ? ORDER BY p.name""", (club_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def all_people() -> list[dict]:
+    return [dict(r) for r in
+            get_db().execute("SELECT * FROM people ORDER BY name").fetchall()]
+
+
+def person_or_none(person_id) -> dict | None:
+    if not person_id:
+        return None
+    row = get_db().execute("SELECT * FROM people WHERE id = ?", (person_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def clubs_query(person_id=None):
+    db = get_db()
+    if person_id:
+        return db.execute(
+            """SELECT c.* FROM clubs c
+               JOIN club_people cp ON cp.club_id = c.id
+               WHERE cp.person_id = ? ORDER BY c.name""", (person_id,)).fetchall()
+    return db.execute("SELECT * FROM clubs ORDER BY name").fetchall()
 
 
 def pretty_date(iso: str | None) -> str:
@@ -217,12 +311,9 @@ app.jinja_env.filters["short_date"] = short_date
 # --------------------------------------------------------------------------
 
 
-@app.route("/")
-def home():
-    db = get_db()
-    clubs = db.execute("SELECT * FROM clubs ORDER BY name").fetchall()
+def _club_cards(person_id=None):
     cards = []
-    for club in clubs:
+    for club in clubs_query(person_id):
         current, upcoming, _past = club_books(club["id"])
         cards.append({
             "club": club,
@@ -230,8 +321,18 @@ def home():
             "current": current,
             "next_up": upcoming[0] if upcoming else None,
             "queue_len": len(upcoming),
+            "members": club_members(club["id"]),
         })
-    return render_template("index.html", cards=cards)
+    return cards
+
+
+@app.route("/")
+def home():
+    person_id = request.args.get("person", type=int)
+    person = person_or_none(person_id)
+    return render_template("index.html",
+                           cards=_club_cards(person["id"] if person else None),
+                           people=all_people(), person=person)
 
 
 @app.route("/club/<int:club_id>")
@@ -239,7 +340,8 @@ def club_detail(club_id: int):
     club = fetch_club_or_404(club_id)
     current, upcoming, past = club_books(club_id)
     return render_template("club.html", club=club, accent=club_accent(club_id),
-                           current=current, upcoming=upcoming, past=past)
+                           current=current, upcoming=upcoming, past=past,
+                           members=club_members(club_id))
 
 
 @app.route("/calendar")
@@ -254,34 +356,43 @@ def calendar_view():
 
     prev_month = (first - timedelta(days=1)).replace(day=1)
     next_month = (first + timedelta(days=32)).replace(day=1)
+    month_prefix = f"{year:04d}-{month:02d}"
 
     db = get_db()
     rows = db.execute(
         """SELECT b.*, c.name AS club_name FROM books b
            JOIN clubs c ON c.id = b.club_id
-           WHERE b.status IN ('current', 'upcoming')
-             AND (b.due_date IS NOT NULL OR b.meeting_date IS NOT NULL)""").fetchall()
+           WHERE b.status IN ('current', 'upcoming')""").fetchall()
 
     events_by_day: dict[str, list] = {}
+
+    def add_event(iso, club_id, club_name, label):
+        if iso and iso[:7] == month_prefix:
+            events_by_day.setdefault(iso, []).append({
+                "club": club_name,
+                "club_id": club_id,
+                "accent": club_accent(club_id),
+                "title": label,
+            })
+
     for b in rows:
-        for kind, iso in (("due", b["due_date"]), ("meeting", b["meeting_date"])):
-            if iso and iso[:7] == f"{year:04d}-{month:02d}":
-                events_by_day.setdefault(iso, []).append({
-                    "kind": kind,
-                    "club": b["club_name"],
-                    "club_id": b["club_id"],
-                    "accent": club_accent(b["club_id"]),
-                    "title": b["title"],
-                })
+        sections = book_sections_for(b["id"])
+        if sections:
+            for s in sections:
+                label = b["title"] + (f" — {s['portion']}" if s["portion"] else "")
+                add_event(s["meet_date"], b["club_id"], b["club_name"], label)
+        else:
+            add_event(b["meeting_date"], b["club_id"], b["club_name"], b["title"])
+
     for day_events in events_by_day.values():
-        day_events.sort(key=lambda e: (e["kind"], e["club"]))
+        day_events.sort(key=lambda e: e["club"])
 
     # Build week rows (Sunday-first grid)
-    start_pad = (first.weekday() + 1) % 7  # Monday=0 ... Sunday=6 -> Sunday-first
-    days_in_month = ((next_month - timedelta(days=1)).day)
+    start_pad = (first.weekday() + 1) % 7
+    days_in_month = (next_month - timedelta(days=1)).day
     cells: list[dict | None] = [None] * start_pad
     for d in range(1, days_in_month + 1):
-        iso = f"{year:04d}-{month:02d}-{d:02d}"
+        iso = f"{month_prefix}-{d:02d}"
         cells.append({"day": d, "iso": iso, "events": events_by_day.get(iso, [])})
     while len(cells) % 7:
         cells.append(None)
@@ -291,32 +402,37 @@ def calendar_view():
         ((iso, ev) for iso, evs in events_by_day.items() for ev in evs),
         key=lambda pair: pair[0])
 
+    clubs = [{"name": c["name"], "accent": club_accent(c["id"])}
+             for c in clubs_query()]
+
     return render_template("calendar.html", weeks=weeks,
                            month_label=first.strftime("%B %Y"),
                            prev_y=prev_month.year, prev_m=prev_month.month,
                            next_y=next_month.year, next_m=next_month.month,
-                           month_events=month_events)
+                           month_events=month_events, club_legend=clubs)
 
 
-def _signage_payload():
-    db = get_db()
-    clubs = db.execute("SELECT * FROM clubs ORDER BY name").fetchall()
+@app.route("/display")
+@app.route("/signage")
+def signage():
+    person_id = request.args.get("person", type=int)
+    person = person_or_none(person_id)
     boards = []
-    for club in clubs:
+    for club in clubs_query(person["id"] if person else None):
         current, upcoming, _past = club_books(club["id"])
         boards.append({
             "club": club,
             "accent": club_accent(club["id"]),
             "current": current,
             "next_up": upcoming[0] if upcoming else None,
+            "members": club_members(club["id"]),
         })
-    return boards
-
-
-@app.route("/display")
-@app.route("/signage")
-def signage():
-    return render_template("signage.html", boards=_signage_payload(),
+    # Soonest meeting first; clubs with no scheduled date sink to the end
+    boards.sort(key=lambda b: (b["current"] is None,
+                               (b["current"] or {}).get("next_date") is None,
+                               (b["current"] or {}).get("next_date") or "9999"))
+    return render_template("signage.html", boards=boards, people=all_people(),
+                           person=person,
                            now=datetime.now().strftime("%A, %B %-d"))
 
 # --------------------------------------------------------------------------
@@ -355,8 +471,71 @@ def book_search():
     return jsonify({"results": results})
 
 # --------------------------------------------------------------------------
+# Admin: people
+# --------------------------------------------------------------------------
+
+
+@app.route("/admin/people", methods=["GET", "POST"])
+@admin_required
+def people_admin():
+    db = get_db()
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            flash("The person needs a name.", "error")
+        else:
+            db.execute("INSERT INTO people (name) VALUES (?)", (name,))
+            db.commit()
+            flash(f"Added {name}.", "ok")
+        return redirect(url_for("people_admin"))
+    people = all_people()
+    memberships = {}
+    for p in people:
+        rows = db.execute(
+            """SELECT c.name FROM clubs c JOIN club_people cp ON cp.club_id = c.id
+               WHERE cp.person_id = ? ORDER BY c.name""", (p["id"],)).fetchall()
+        memberships[p["id"]] = [r["name"] for r in rows]
+    return render_template("people.html", people=people, memberships=memberships)
+
+
+@app.route("/admin/people/<int:person_id>/delete", methods=["POST"])
+@admin_required
+def person_delete(person_id: int):
+    db = get_db()
+    person = db.execute("SELECT * FROM people WHERE id = ?", (person_id,)).fetchone()
+    if person is None:
+        abort(404)
+    db.execute("DELETE FROM people WHERE id = ?", (person_id,))
+    db.commit()
+    flash(f"Removed {person['name']}.", "ok")
+    return redirect(url_for("people_admin"))
+
+
+@app.route("/admin/people/<int:person_id>/rename", methods=["POST"])
+@admin_required
+def person_rename(person_id: int):
+    name = (request.form.get("name") or "").strip()
+    if name:
+        db = get_db()
+        db.execute("UPDATE people SET name = ? WHERE id = ?", (name, person_id))
+        db.commit()
+        flash("Name updated.", "ok")
+    return redirect(url_for("people_admin"))
+
+# --------------------------------------------------------------------------
 # Admin: clubs
 # --------------------------------------------------------------------------
+
+
+def _save_club_members(db, club_id: int):
+    picked = request.form.getlist("member_ids")
+    db.execute("DELETE FROM club_people WHERE club_id = ?", (club_id,))
+    for pid in picked:
+        try:
+            db.execute("INSERT OR IGNORE INTO club_people (club_id, person_id) "
+                       "VALUES (?, ?)", (club_id, int(pid)))
+        except ValueError:
+            pass
 
 
 @app.route("/admin/club/new", methods=["GET", "POST"])
@@ -371,28 +550,33 @@ def club_new():
             cur = db.execute(
                 "INSERT INTO clubs (name, description) VALUES (?, ?)",
                 (name, (request.form.get("description") or "").strip()))
+            _save_club_members(db, cur.lastrowid)
             db.commit()
             flash(f"Club “{name}” created.", "ok")
             return redirect(url_for("club_detail", club_id=cur.lastrowid))
-    return render_template("club_form.html", club=None)
+    return render_template("club_form.html", club=None, people=all_people(),
+                           member_ids=set())
 
 
 @app.route("/admin/club/<int:club_id>/edit", methods=["GET", "POST"])
 @admin_required
 def club_edit(club_id: int):
     club = fetch_club_or_404(club_id)
+    db = get_db()
     if request.method == "POST":
         name = (request.form.get("name") or "").strip()
         if not name:
             flash("The club needs a name.", "error")
         else:
-            db = get_db()
             db.execute("UPDATE clubs SET name = ?, description = ? WHERE id = ?",
                        (name, (request.form.get("description") or "").strip(), club_id))
+            _save_club_members(db, club_id)
             db.commit()
             flash("Club updated.", "ok")
             return redirect(url_for("club_detail", club_id=club_id))
-    return render_template("club_form.html", club=club)
+    member_ids = {m["id"] for m in club_members(club_id)}
+    return render_template("club_form.html", club=club, people=all_people(),
+                           member_ids=member_ids)
 
 
 @app.route("/admin/club/<int:club_id>/delete", methods=["POST"])
@@ -415,16 +599,35 @@ def _book_form_values():
         "title": (request.form.get("title") or "").strip(),
         "author": (request.form.get("author") or "").strip(),
         "cover_url": (request.form.get("cover_url") or "").strip(),
-        "due_date": request.form.get("due_date") or None,
         "meeting_date": request.form.get("meeting_date") or None,
         "portion": (request.form.get("portion") or "").strip(),
         "status": request.form.get("status") or "upcoming",
+        "sectioned": request.form.get("sectioned") == "on",
     }
 
 
+def _form_sections() -> list[tuple[str, str]]:
+    dates = request.form.getlist("section_date")
+    portions = request.form.getlist("section_portion")
+    pairs = [(d, (p or "").strip()) for d, p in zip(dates, portions) if d]
+    pairs.sort(key=lambda pair: pair[0])
+    return pairs
+
+
+def _save_sections(db, book_id: int, values: dict):
+    """Replace a book's sections from the form. When sectioned, the
+    book-level meeting date is cleared — the sections carry the dates."""
+    db.execute("DELETE FROM book_sections WHERE book_id = ?", (book_id,))
+    if values["sectioned"]:
+        pairs = _form_sections()
+        for pos, (d, portion) in enumerate(pairs):
+            db.execute("INSERT INTO book_sections (book_id, meet_date, portion, "
+                       "position) VALUES (?, ?, ?, ?)", (book_id, d, portion, pos))
+        if pairs:
+            db.execute("UPDATE books SET meeting_date = NULL WHERE id = ?", (book_id,))
+
+
 def _make_current(db, club_id: int, book_id: int):
-    """Promote a book to current; any existing current book goes to the
-    front of the upcoming queue."""
     db.execute(
         "UPDATE books SET status = 'upcoming', queue_pos = -1 "
         "WHERE club_id = ? AND status = 'current' AND id != ?",
@@ -456,17 +659,18 @@ def book_new(club_id: int):
                 "SELECT COALESCE(MAX(queue_pos), -1) + 1 AS p FROM books "
                 "WHERE club_id = ? AND status = 'upcoming'", (club_id,)).fetchone()["p"]
             cur = db.execute(
-                """INSERT INTO books (club_id, title, author, cover_url, due_date,
+                """INSERT INTO books (club_id, title, author, cover_url,
                                       meeting_date, portion, status, queue_pos)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 'upcoming', ?)""",
-                (club_id, v["title"], v["author"], v["cover_url"], v["due_date"],
+                   VALUES (?, ?, ?, ?, ?, ?, 'upcoming', ?)""",
+                (club_id, v["title"], v["author"], v["cover_url"],
                  v["meeting_date"], v["portion"], next_pos))
+            _save_sections(db, cur.lastrowid, v)
             if v["status"] == "current":
                 _make_current(db, club_id, cur.lastrowid)
             db.commit()
             flash(f"Added “{v['title']}”.", "ok")
             return redirect(url_for("club_detail", club_id=club_id))
-    return render_template("book_form.html", club=club, book=None)
+    return render_template("book_form.html", club=club, book=None, sections=[])
 
 
 @app.route("/admin/book/<int:book_id>/edit", methods=["GET", "POST"])
@@ -484,9 +688,10 @@ def book_edit(book_id: int):
         else:
             db.execute(
                 """UPDATE books SET title = ?, author = ?, cover_url = ?,
-                       due_date = ?, meeting_date = ?, portion = ? WHERE id = ?""",
-                (v["title"], v["author"], v["cover_url"], v["due_date"],
+                       meeting_date = ?, portion = ? WHERE id = ?""",
+                (v["title"], v["author"], v["cover_url"],
                  v["meeting_date"], v["portion"], book_id))
+            _save_sections(db, book_id, v)
             if v["status"] != book["status"]:
                 if v["status"] == "current":
                     _make_current(db, club["id"], book_id)
@@ -504,7 +709,8 @@ def book_edit(book_id: int):
             db.commit()
             flash("Book updated.", "ok")
             return redirect(url_for("club_detail", club_id=club["id"]))
-    return render_template("book_form.html", club=club, book=book)
+    return render_template("book_form.html", club=club, book=book,
+                           sections=book_sections_for(book_id))
 
 
 @app.route("/admin/book/<int:book_id>/action", methods=["POST"])
@@ -520,7 +726,6 @@ def book_action(book_id: int):
     if action == "finish":
         db.execute("UPDATE books SET status = 'past', finished_at = datetime('now') "
                    "WHERE id = ?", (book_id,))
-        # Promote the next book in the queue, if any
         nxt = db.execute(
             "SELECT id FROM books WHERE club_id = ? AND status = 'upcoming' "
             "ORDER BY queue_pos, id LIMIT 1", (club_id,)).fetchone()

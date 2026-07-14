@@ -779,3 +779,175 @@ textarea { resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ==================================================================
+   v2 additions: people, person filters, section editor & tables
+   ================================================================== */
+
+/* People chips (app pages) */
+.people-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: -0.4rem 0 1.4rem;
+}
+.people-filter .eyebrow { margin: 0 0.3rem 0 0; }
+
+.person-chip {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.18rem 0.7rem;
+  margin-right: 0.25rem;
+  transition: background 0.15s, color 0.15s;
+}
+.person-chip:hover { background: var(--paper-deep); color: var(--ink); }
+.person-chip-on { background: var(--brass); border-color: var(--brass); color: var(--paper); }
+
+.member-line { margin: 0.35rem 0 0; font-size: 0.85rem; color: var(--smoke); }
+
+/* People admin page */
+.inline-add { display: flex; gap: 0.5rem; margin-top: 1rem; }
+.inline-add input { flex: 1; }
+.people-list { margin-top: 1rem; }
+
+/* Member picker (club form) */
+.member-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.member-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-weight: 500;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.25rem 0.8rem;
+  cursor: pointer;
+  user-select: none;
+}
+.member-pick:has(input:checked) {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: var(--paper);
+}
+.member-pick input { width: auto; margin: 0; accent-color: var(--ink); }
+
+/* Sectioned-book form */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 1.2rem;
+}
+.check-row input { width: auto; accent-color: var(--brass); }
+.check-row label { margin: 0; }
+
+.section-row {
+  display: grid;
+  grid-template-columns: 11rem 1fr auto;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+#sections-editor .btn { margin-top: 0.2rem; }
+#sections-editor > label { margin-bottom: 0.5rem; }
+
+/* Section table on club page */
+.section-table {
+  border-collapse: collapse;
+  margin: 0.4rem 0 1rem;
+  width: 100%;
+  max-width: 480px;
+  font-size: 0.92rem;
+}
+.section-table th {
+  text-align: left;
+  font-size: 0.68rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--smoke);
+  padding: 0.3rem 0.8rem 0.3rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.section-table td {
+  padding: 0.4rem 0.8rem 0.4rem 0;
+  border-bottom: 1px dashed var(--line);
+}
+.section-done td { color: var(--smoke); text-decoration: line-through; text-decoration-color: rgba(109,111,96,0.5); }
+.section-next td { font-weight: 600; }
+.next-tag {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: var(--brass);
+  padding: 0.08rem 0.4rem;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+/* Calendar legend by club */
+.cal-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; }
+.cal-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+.cal-dot { border-radius: 50%; }
+
+/* Signage: member names + filter chips */
+.board-members {
+  text-align: center;
+  margin: -1.4vh 0 2vh;
+  font-size: clamp(0.85rem, 1.2vw, 1.05rem);
+  letter-spacing: 0.06em;
+  color: rgba(244, 238, 225, 0.7);
+}
+.board-members a { color: inherit; text-decoration: none; }
+.board-members a:hover { color: var(--brass-bright); }
+
+.signage-filter {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 1.6vh auto 0;
+  max-width: 900px;
+}
+.sig-chip {
+  font-size: clamp(0.72rem, 1vw, 0.85rem);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: rgba(244, 238, 225, 0.75);
+  border: 1px solid rgba(201, 160, 74, 0.45);
+  border-radius: 999px;
+  padding: 0.25rem 0.9rem;
+}
+.sig-chip:hover { color: var(--brass-bright); border-color: var(--brass-bright); }
+.sig-chip-on { background: var(--brass); border-color: var(--brass); color: var(--night); }
+
+.signage-body { cursor: auto; }
+
+@media (max-width: 640px) {
+  .section-row { grid-template-columns: 1fr; grid-template-rows: auto auto; }
+  .section-row .section-remove { justify-self: end; }
+  .inline-add { flex-direction: column; }
+}

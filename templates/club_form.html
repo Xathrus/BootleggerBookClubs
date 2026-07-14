@@ -12,6 +12,21 @@
     <textarea id="description" name="description" rows="3" maxlength="300"
               placeholder="Who's in it, where you meet, the vibe…">{{ club.description if club else '' }}</textarea>
 
+    <label>Members</label>
+    {% if people %}
+    <div class="member-picker">
+      {% for p in people %}
+      <label class="member-pick">
+        <input type="checkbox" name="member_ids" value="{{ p.id }}"
+               {{ 'checked' if p.id in member_ids }}>
+        <span>{{ p.name }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted small">No people yet — add some on the <a href="{{ url_for('people_admin') }}">People page</a> first, then come back to check them off.</p>
+    {% endif %}
+
     <div class="btn-row">
       <button class="btn btn-brass" type="submit">{{ 'Save changes' if club else 'Create club' }}</button>
       <a class="btn" href="{{ url_for('club_detail', club_id=club.id) if club else url_for('home') }}">Cancel</a>

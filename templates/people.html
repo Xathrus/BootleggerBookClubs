@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}People — Bootlegger{% endblock %}
+{% block content %}
+<div class="form-card">
+  <h1>People</h1>
+  <p class="muted">Add family and friends here, then pick who's in each club on the club's edit page. No accounts or logins — just names.</p>
+
+  <form method="post" class="inline-add">
+    <input type="text" name="name" required maxlength="100" placeholder="Add a person, e.g. Aunt Carol">
+    <button class="btn btn-brass" type="submit">Add</button>
+  </form>
+
+  {% if people %}
+  <ul class="book-list people-list">
+    {% for p in people %}
+    <li class="book-row">
+      <div class="book-row-info">
+        <strong class="book-title">{{ p.name }}</strong>
+        <span class="muted small">
+          {% if memberships[p.id] %}{{ memberships[p.id]|join(' · ') }}{% else %}Not in any clubs yet{% endif %}
+        </span>
+      </div>
+      <div class="book-row-actions">
+        <a class="btn" href="{{ url_for('home', person=p.id) }}">View their clubs</a>
+        <form method="post" action="{{ url_for('person_delete', person_id=p.id) }}"
+              onsubmit="return confirm('Remove {{ p.name }} from everything?')">
+          <button class="btn btn-danger btn-icon" title="Remove">&times;</button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted" style="margin-top:1rem">Nobody here yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

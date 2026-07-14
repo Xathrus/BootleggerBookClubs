@@ -10,10 +10,13 @@
   </div>
 </div>
 
+{% if club_legend %}
 <div class="cal-legend">
-  <span class="date-chip date-due">&#9679; Finish-by date</span>
-  <span class="date-chip date-meet">&#9679; Meeting</span>
+  {% for c in club_legend %}
+  <span class="cal-legend-item" style="--accent: {{ c.accent }}"><span class="cal-dot"></span>{{ c.name }}</span>
+  {% endfor %}
 </div>
+{% endif %}
 
 <div class="cal-grid-wrap">
   <table class="cal-grid">
@@ -30,9 +33,9 @@
         <td class="{{ 'cal-today' if cell.iso == today }}">
           <span class="cal-day">{{ cell.day }}</span>
           {% for ev in cell.events %}
-          <a class="cal-event cal-{{ ev.kind }}" style="--accent: {{ ev.accent }}"
+          <a class="cal-event" style="--accent: {{ ev.accent }}"
              href="{{ url_for('club_detail', club_id=ev.club_id) }}"
-             title="{{ ev.club }}: {{ ev.title }} ({{ 'finish by' if ev.kind == 'due' else 'meeting' }})">
+             title="{{ ev.club }}: {{ ev.title }}">
             <span class="cal-dot"></span>{{ ev.title }}
           </a>
           {% endfor %}
@@ -57,7 +60,6 @@
       <span class="cal-dot"></span>
       <span class="agenda-body">
         <strong>{{ ev.club }}</strong> — {{ ev.title }}
-        <em class="muted">{{ 'finish by this date' if ev.kind == 'due' else 'club meeting' }}</em>
       </span>
     </li>
     {% endfor %}

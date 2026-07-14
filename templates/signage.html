@@ -14,8 +14,17 @@
     <header class="signage-head">
       <div class="signage-rule"></div>
       <h1 class="signage-wordmark">Bootlegger</h1>
-      <p class="signage-sub">{{ now }} &mdash; what we're reading</p>
+      <p class="signage-sub">{{ now }} &mdash; {{ person.name + "'s reading" if person else "what we're reading" }}</p>
       <div class="signage-rule"></div>
+      {% if people %}
+      <nav class="signage-filter">
+        <a class="sig-chip {{ 'sig-chip-on' if not person }}" href="{{ url_for('signage') }}">Everyone</a>
+        {% for p in people %}
+        <a class="sig-chip {{ 'sig-chip-on' if person and person.id == p.id }}"
+           href="{{ url_for('signage', person=p.id) }}">{{ p.name }}</a>
+        {% endfor %}
+      </nav>
+      {% endif %}
     </header>
 
     {% if boards %}
@@ -25,6 +34,11 @@
         <div class="board-corner tl"></div><div class="board-corner tr"></div>
         <div class="board-corner bl"></div><div class="board-corner br"></div>
         <h2 class="board-club">{{ b.club.name }}</h2>
+        {% if b.members %}
+        <p class="board-members">
+          {% for m in b.members %}<a href="{{ url_for('signage', person=m.id) }}">{{ m.name }}</a>{{ " · " if not loop.last }}{% endfor %}
+        </p>
+        {% endif %}
         {% if b.current %}
         <div class="board-current">
           {% if b.current.cover_url %}
@@ -33,15 +47,33 @@
           <div class="board-book">
             <p class="board-title">{{ b.current.title }}</p>
             <p class="board-author">{{ b.current.author }}</p>
-            {% if b.current.portion %}<p class="board-portion">{{ b.current.portion }}</p>{% endif %}
+            {% if b.current.next_section %}
+              <p class="board-portion">Next: {{ b.current.next_section.portion or 'next section' }}</p>
+            {% elif b.current.sections and b.current.all_sections_done %}
+              <p class="board-portion">Final section discussed</p>
+            {% elif b.current.portion %}
+              <p class="board-portion">{{ b.current.portion }}</p>
+            {% endif %}
           </div>
         </div>
         <div class="board-dates">
-          {% if b.current.due_date %}
-            <div class="board-date"><span class="board-date-label">Finish by</span><span class="board-date-value">{{ b.current.due_date|pretty_date }}</span></div>
+          {% if b.current.next_date %}
+            <div class="board-date">
+              <span class="board-date-label">{{ 'Next meeting' if b.current.sections else 'Meeting' }}</span>
+              <span class="board-date-value">{{ b.current.next_date|pretty_date }}</span>
+            </div>
           {% endif %}
-          {% if b.current.meeting_date %}
-            <div class="board-date"><span class="board-date-label">Meeting</span><span class="board-date-value">{{ b.current.meeting_date|pretty_date }}</span></div>
+          {% if b.current.sections %}
+            <div class="board-date">
+              <span class="board-date-label">Sections</span>
+              <span class="board-date-value">
+                {% if b.current.next_section %}
+                  {{ b.current.sections.index(b.current.next_section) + 1 }} of {{ b.current.sections|length }}
+                {% else %}
+                  {{ b.current.sections|length }} of {{ b.current.sections|length }}
+                {% endif %}
+              </span>
+            </div>
           {% endif %}
         </div>
         {% else %}
@@ -54,6 +86,8 @@
       </article>
       {% endfor %}
     </div>
+    {% elif person %}
+    <p class="board-idle" style="text-align:center">{{ person.name }} isn't in any clubs yet.</p>
     {% else %}
     <p class="board-idle" style="text-align:center">No clubs yet — check back soon.</p>
     {% endif %}
