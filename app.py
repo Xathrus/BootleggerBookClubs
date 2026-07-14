@@ -17,7 +17,8 @@ from functools import wraps
 
 import requests
 from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
-                   request, session, url_for)
+                   request, send_from_directory, session, url_for)
+from PIL import Image, UnidentifiedImageError
 
 # --------------------------------------------------------------------------
 # Configuration
@@ -26,8 +27,14 @@ from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "data"))
 DB_PATH = os.path.join(DATA_DIR, "bootlegger.db")
+COVERS_DIR = os.path.join(DATA_DIR, "covers")
 
 os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(COVERS_DIR, exist_ok=True)
+
+# Uploaded covers are resized to fit this box (2:3 portrait, the standard
+# book-cover shape) — large enough for the signage view on a TV, small on disk.
+COVER_MAX = (600, 900)
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
@@ -53,6 +60,7 @@ app.config["SECRET_KEY"] = _load_secret_key()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024  # 15 MB upload ceiling
 
 # Calendar accent colors cycled across clubs (index = club id % len)
 CLUB_ACCENTS = ["#B08D3E", "#7A2E2A", "#3E5F4B", "#5B4A78", "#8C6239", "#2F5D6B"]
@@ -584,10 +592,65 @@ def club_edit(club_id: int):
 def club_delete(club_id: int):
     club = fetch_club_or_404(club_id)
     db = get_db()
+    covers = [r["cover_url"] for r in db.execute(
+        "SELECT cover_url FROM books WHERE club_id = ?", (club_id,)).fetchall()]
     db.execute("DELETE FROM clubs WHERE id = ?", (club_id,))
     db.commit()
+    for url in covers:
+        cleanup_cover(db, url)
     flash(f"Club “{club['name']}” and its books were removed.", "ok")
     return redirect(url_for("home"))
+
+# --------------------------------------------------------------------------
+# Uploaded book covers
+# --------------------------------------------------------------------------
+
+
+@app.route("/covers/<path:filename>")
+def cover_file(filename):
+    resp = send_from_directory(COVERS_DIR, filename)
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+
+def save_uploaded_cover(file_storage) -> str | None:
+    """Validate and store an uploaded cover image. Anything Pillow can read
+    is accepted; it's resized to fit COVER_MAX and saved as JPEG. Returns
+    the /covers/... URL, or None if the file wasn't a usable image."""
+    try:
+        img = Image.open(file_storage.stream)
+        img.load()
+    except (UnidentifiedImageError, OSError):
+        return None
+    if img.mode in ("RGBA", "P", "LA"):
+        # Flatten transparency onto paper-white so JPEG doesn't go black
+        img = img.convert("RGBA")
+        flat = Image.new("RGB", img.size, (244, 238, 225))
+        flat.paste(img, mask=img.split()[-1])
+        img = flat
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+    img.thumbnail(COVER_MAX, Image.LANCZOS)
+    name = f"{secrets.token_hex(8)}.jpg"
+    img.save(os.path.join(COVERS_DIR, name), "JPEG", quality=85, optimize=True)
+    return f"/covers/{name}"
+
+
+def cleanup_cover(db, url: str | None):
+    """Remove an uploaded cover file once no book references it anymore.
+    External URLs (Open Library etc.) are left alone."""
+    if not url or not url.startswith("/covers/"):
+        return
+    still_used = db.execute("SELECT COUNT(*) AS n FROM books WHERE cover_url = ?",
+                            (url,)).fetchone()["n"]
+    if still_used:
+        return
+    path = os.path.join(COVERS_DIR, os.path.basename(url))
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
 
 # --------------------------------------------------------------------------
 # Admin: books
@@ -595,7 +658,7 @@ def club_delete(club_id: int):
 
 
 def _book_form_values():
-    return {
+    v = {
         "title": (request.form.get("title") or "").strip(),
         "author": (request.form.get("author") or "").strip(),
         "cover_url": (request.form.get("cover_url") or "").strip(),
@@ -603,7 +666,16 @@ def _book_form_values():
         "portion": (request.form.get("portion") or "").strip(),
         "status": request.form.get("status") or "upcoming",
         "sectioned": request.form.get("sectioned") == "on",
+        "cover_error": False,
     }
+    upload = request.files.get("cover_file")
+    if upload and upload.filename:
+        saved = save_uploaded_cover(upload)
+        if saved:
+            v["cover_url"] = saved  # an upload wins over the URL field
+        else:
+            v["cover_error"] = True
+    return v
 
 
 def _form_sections() -> list[tuple[str, str]]:
@@ -653,6 +725,8 @@ def book_new(club_id: int):
         v = _book_form_values()
         if not v["title"]:
             flash("The book needs a title.", "error")
+        elif v["cover_error"]:
+            flash("That cover file couldn't be read as an image — try a JPG or PNG.", "error")
         else:
             db = get_db()
             next_pos = db.execute(
@@ -685,7 +759,10 @@ def book_edit(book_id: int):
         v = _book_form_values()
         if not v["title"]:
             flash("The book needs a title.", "error")
+        elif v["cover_error"]:
+            flash("That cover file couldn't be read as an image — try a JPG or PNG.", "error")
         else:
+            old_cover = book["cover_url"]
             db.execute(
                 """UPDATE books SET title = ?, author = ?, cover_url = ?,
                        meeting_date = ?, portion = ? WHERE id = ?""",
@@ -707,6 +784,8 @@ def book_edit(book_id: int):
                                "finished_at = NULL WHERE id = ?", (next_pos, book_id))
                 _renumber_queue(db, club["id"])
             db.commit()
+            if old_cover != v["cover_url"]:
+                cleanup_cover(db, old_cover)
             flash("Book updated.", "ok")
             return redirect(url_for("club_detail", club_id=club["id"]))
     return render_template("book_form.html", club=club, book=book,
@@ -759,6 +838,8 @@ def book_action(book_id: int):
         flash(f"“{book['title']}” removed.", "ok")
 
     db.commit()
+    if action == "delete":
+        cleanup_cover(db, book["cover_url"])
     return redirect(request.form.get("back") or url_for("club_detail", club_id=club_id))
 
 # --------------------------------------------------------------------------
@@ -771,6 +852,12 @@ def service_worker():
     resp = app.send_static_file("sw.js")
     resp.headers["Cache-Control"] = "no-cache"
     return resp
+
+
+@app.errorhandler(413)
+def too_large(_e):
+    flash("That file is over the 15 MB upload limit — please use a smaller image.", "error")
+    return redirect(request.referrer or url_for("home"))
 
 
 @app.errorhandler(404)

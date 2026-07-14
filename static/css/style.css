@@ -951,3 +951,28 @@ textarea { resize: vertical; }
   .section-row .section-remove { justify-self: end; }
   .inline-add { flex-direction: column; }
 }
+
+/* Cover file upload */
+input[type="file"] {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  color: var(--ink);
+  border: 1px dashed var(--ink-soft);
+  padding: 0.55rem 0.7rem;
+  background: var(--paper);
+}
+input[type="file"]::file-selector-button {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: var(--brass);
+  border: none;
+  padding: 0.35rem 0.8rem;
+  margin-right: 0.8rem;
+  cursor: pointer;
+}
+input[type="url"]:disabled { opacity: 0.45; }

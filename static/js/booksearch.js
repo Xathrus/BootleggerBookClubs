@@ -89,6 +89,7 @@
     clearResults();
     setStatus('Filled in “' + item.title + '” — adjust anything you like, then set the dates.');
     input.value = '';
+    document.dispatchEvent(new Event('booksearch:pick'));
   }
 
   input.addEventListener('input', () => {

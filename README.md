@@ -8,6 +8,7 @@ A small, self-hosted hub for tracking what several book clubs are reading — wh
 - **Books** carry a title, author, cover image, a meeting date, and an optional "portion" note like *Chapters 1–10* when the club isn't reading the whole book.
 - **Split books**: a book can be read across several meetings — give each section its own date and chapter note, and every view highlights the *next* section due.
 - **People**: add family and friends by name and check them off per club. Names show on club cards and the display, and clicking a name filters everything down to that person's clubs. (No accounts, ratings, or RSVPs — just names.)
+- **Cover uploads**: search auto-fills covers from Open Library, paste any image URL, or upload your own file — uploads are resized to 600 × 900 automatically and stored alongside the database.
 - **Book search** against the Open Library API (free, no API key needed) that auto-fills title, author, and cover art. Manual entry always works as a fallback.
 - **Calendar view** showing every meeting (including each section of a split book) across all clubs, color-coded per club.
 - **Digital signage** at `/display` (or `/signage`) — a dark, high-contrast board sorted soonest-meeting-first, designed to be readable from across the room on a TV or tablet. It refreshes itself every 5 minutes with no page flash.

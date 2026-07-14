@@ -16,7 +16,7 @@
   <div class="form-divider"><span>or fill in by hand</span></div>
   {% endif %}
 
-  <form method="post">
+  <form method="post" enctype="multipart/form-data">
     <label for="title">Title</label>
     <input type="text" id="title" name="title" required maxlength="300"
            value="{{ book.title if book else '' }}">
@@ -28,6 +28,11 @@
     <label for="cover_url">Cover image URL <span class="muted">(optional)</span></label>
     <input type="url" id="cover_url" name="cover_url" maxlength="500"
            value="{{ book.cover_url if book else '' }}" placeholder="https://…">
+
+    <label for="cover_file">…or upload a cover <span class="muted">(600 × 900 px is ideal; anything larger is resized automatically)</span></label>
+    <input type="file" id="cover_file" name="cover_file" accept="image/*">
+    <p class="muted small" style="margin:0.3rem 0 0">An uploaded file replaces whatever is in the URL box. JPG, PNG, WebP, and HEIC-converted photos all work — portrait 2:3 shape looks best.</p>
+
     <img id="cover-preview" class="cover cover-sm cover-preview"
          src="{{ book.cover_url if book and book.cover_url else '' }}"
          alt="Cover preview" {{ '' if book and book.cover_url else 'hidden' }}>
@@ -81,5 +86,6 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/booksearch.js') }}"></script>
+<script src="{{ url_for('static', filename='js/coverupload.js') }}"></script>
 <script src="{{ url_for('static', filename='js/sections.js') }}"></script>
 {% endblock %}
