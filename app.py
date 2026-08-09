@@ -274,6 +274,35 @@ def logout():
     session.clear()
     return redirect(url_for("home"))
 
+
+@app.route("/account/password", methods=["GET", "POST"])
+def change_password():
+    person = current_person()
+    if not person:
+        if is_admin():
+            flash("The admin password is set with the ADMIN_PASSWORD environment "
+                  "variable, not here — edit .env and restart the app.", "error")
+            return redirect(url_for("home"))
+        return redirect(url_for("login", next=request.path))
+    if request.method == "POST":
+        current = request.form.get("current_password") or ""
+        new = request.form.get("new_password") or ""
+        confirm = request.form.get("confirm_password") or ""
+        if not check_password_hash(person["password_hash"], current):
+            flash("Your current password didn't match.", "error")
+        elif len(new) < 6:
+            flash("New passwords need at least 6 characters.", "error")
+        elif new != confirm:
+            flash("The new passwords didn't match each other.", "error")
+        else:
+            db = get_db()
+            db.execute("UPDATE people SET password_hash = ? WHERE id = ?",
+                       (generate_password_hash(new), person["id"]))
+            db.commit()
+            flash("Password changed.", "ok")
+            return redirect(url_for("home"))
+    return render_template("password.html")
+
 # --------------------------------------------------------------------------
 # Automatic finishing of past-date whole-book reads
 # --------------------------------------------------------------------------
@@ -581,6 +610,60 @@ def signage():
     return render_template("signage.html", boards=boards, chips=chips,
                            selected=selected, heading=heading,
                            now=datetime.now().strftime("%A, %B %-d"))
+
+# --------------------------------------------------------------------------
+# Household Hub API (read-only, bearer-token, off unless HUB_API_TOKEN is set)
+# --------------------------------------------------------------------------
+
+
+@app.route("/api/upcoming-books")
+def upcoming_books_api():
+    """Server-to-server JSON feed of books due within the next N days.
+    Auth is a bearer token from the HUB_API_TOKEN environment variable —
+    no session cookie involved. 'Due date' is the book's next meeting
+    (for split books, the next section's meeting)."""
+    expected = os.environ.get("HUB_API_TOKEN", "")
+    if not expected:
+        return jsonify({"error": "API not configured"}), 503
+    auth = request.headers.get("Authorization", "")
+    supplied = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        return jsonify({"error": "unauthorized"}), 401
+
+    try:
+        days = int(request.args.get("days", 7))
+    except (TypeError, ValueError):
+        days = 7
+    days = max(0, min(days, 60))
+    today_d = date.today()
+    end_iso = (today_d + timedelta(days=days)).isoformat()
+    today_iso = today_d.isoformat()
+
+    db = get_db()
+    books_out = []
+    for club in db.execute("SELECT * FROM clubs").fetchall():
+        members = club_member_list(club["id"])
+        if not members:
+            continue  # nobody to attribute the book to
+        rows = db.execute(
+            "SELECT * FROM books WHERE club_id = ? AND status IN "
+            "('current', 'upcoming')", (club["id"],)).fetchall()
+        for row in rows:
+            book = enrich_book(row)
+            due = book["next_date"]
+            # skip undated books, past-due dates, and dates beyond the window
+            if not due or book["all_sections_done"] or not (today_iso <= due <= end_iso):
+                continue
+            for m in members:
+                books_out.append({
+                    "person": m["name"],
+                    "title": book["title"],
+                    "club": club["name"],
+                    "due_date": due,
+                })
+    books_out.sort(key=lambda b: (b["due_date"], b["club"], b["person"]))
+    return jsonify({"books": books_out})
+
 
 # --------------------------------------------------------------------------
 # Book search proxy (Open Library — free, no API key)

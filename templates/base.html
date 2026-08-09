@@ -34,7 +34,8 @@
         {% if is_admin %}
           <a href="{{ url_for('logout') }}" class="nav-admin">Log out (admin)</a>
         {% elif person %}
-          <a href="{{ url_for('logout') }}" class="nav-admin">Log out ({{ person.name }})</a>
+          <a href="{{ url_for('change_password') }}" class="nav-admin" title="Change your password">{{ person.name }}</a>
+          <a href="{{ url_for('logout') }}" class="nav-admin">Log out</a>
         {% else %}
           <a href="{{ url_for('login') }}" class="nav-admin">Log in</a>
         {% endif %}

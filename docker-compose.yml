@@ -7,5 +7,10 @@ services:
       - "8080:8080"
     env_file:
       - .env
+    environment:
+      # Household Hub API token (optional; see .env.example).
+      # env_file already passes everything from .env through, so this line
+      # is just explicit documentation — an empty value keeps the API off.
+      - HUB_API_TOKEN=${HUB_API_TOKEN:-}
     volumes:
       - ./data:/app/data
