@@ -25,6 +25,12 @@ A small, self-hosted hub for tracking what several book clubs are reading — wh
 
 Ratings and RSVPs remain out of scope, but the `people` table gives a natural home for more if it's ever wanted.
 
+## Audiobookshelf links
+
+If you run an [Audiobookshelf](https://www.audiobookshelf.org/) server, the tracker can link each book to its audiobook. Set `ABS_URL` and `ABS_TOKEN` in `.env` (token: Audiobookshelf → Settings → Users → your user → API Token) and restart. New and edited books are matched immediately; a background task links existing books within minutes and retries unmatched ones daily, so newly added audiobooks get picked up. Matching is by title (plus author when available) and is deliberately conservative — no link beats a wrong link.
+
+Matched books show a "Listen" link on the club pages, home cards, and the display. By default it opens the Audiobookshelf web player; if your listening app supports a URL scheme, set `ABS_APP_LINK_TEMPLATE` (with `{id}` as the item-id placeholder) to deep-link into the app instead.
+
 ## Household Hub API
 
 An optional read-only endpoint feeds upcoming book dates to a companion dashboard:

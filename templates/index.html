@@ -67,6 +67,7 @@
             {% if c.current.next_date %}
               <span class="date-chip date-meet">Meets {{ c.current.next_date|short_date }}</span>
             {% endif %}
+            {% if c.current.abs_link %}<span class="abs-chip abs-chip-sm">&#127911; Audiobook</span>{% endif %}
           </div>
         </div>
       </div>

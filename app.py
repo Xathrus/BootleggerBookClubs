@@ -21,6 +21,7 @@ import os
 import re
 import secrets
 import sqlite3
+import threading
 import time
 from datetime import date, datetime, timedelta
 from functools import wraps
@@ -48,6 +49,17 @@ os.makedirs(COVERS_DIR, exist_ok=True)
 COVER_MAX = (600, 900)
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+
+# Audiobookshelf integration (optional). ABS_URL + ABS_TOKEN switch it on.
+# ABS_PUBLIC_URL lets the link shown to people differ from the URL the
+# server uses for API calls (e.g. LAN address vs public hostname).
+# ABS_APP_LINK_TEMPLATE, if set, replaces the web link with an app link;
+# "{id}" in the template becomes the Audiobookshelf item id.
+ABS_URL = (os.environ.get("ABS_URL") or "").rstrip("/")
+ABS_TOKEN = os.environ.get("ABS_TOKEN") or ""
+ABS_PUBLIC_URL = (os.environ.get("ABS_PUBLIC_URL") or ABS_URL).rstrip("/")
+ABS_APP_LINK_TEMPLATE = os.environ.get("ABS_APP_LINK_TEMPLATE") or ""
+ABS_ENABLED = bool(ABS_URL and ABS_TOKEN)
 
 USERNAME_RE = re.compile(r"^[a-z0-9._-]{2,30}$")
 
@@ -99,6 +111,8 @@ CREATE TABLE IF NOT EXISTS books (
                  CHECK (status IN ('current', 'upcoming', 'past')),
     queue_pos    INTEGER NOT NULL DEFAULT 0,
     finished_at  TEXT,
+    abs_item_id  TEXT,               -- matched Audiobookshelf library item
+    abs_checked_at TEXT,             -- when we last searched for a match
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -165,6 +179,12 @@ def init_db():
         conn.execute("ALTER TABLE people ADD COLUMN password_hash TEXT")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_people_username "
                  "ON people (username) WHERE username IS NOT NULL")
+
+    # Migration: v6 books predate the Audiobookshelf link columns
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(books)").fetchall()]
+    if "abs_item_id" not in cols:
+        conn.execute("ALTER TABLE books ADD COLUMN abs_item_id TEXT")
+        conn.execute("ALTER TABLE books ADD COLUMN abs_checked_at TEXT")
 
     conn.commit()
     conn.close()
@@ -387,6 +407,7 @@ def enrich_book(row) -> dict | None:
     else:
         book["next_date"] = book["meeting_date"]
         book["all_sections_done"] = False
+    book.update(abs_links_for(book.get("abs_item_id")))
     return book
 
 
@@ -610,6 +631,134 @@ def signage():
     return render_template("signage.html", boards=boards, chips=chips,
                            selected=selected, heading=heading,
                            now=datetime.now().strftime("%A, %B %-d"))
+
+# --------------------------------------------------------------------------
+# Audiobookshelf lookup (optional; on when ABS_URL + ABS_TOKEN are set)
+# --------------------------------------------------------------------------
+
+_WORD_RE = re.compile(r"[^a-z0-9 ]+")
+
+
+def _abs_norm(s: str) -> str:
+    s = _WORD_RE.sub(" ", (s or "").lower())
+    s = " ".join(s.split())
+    for prefix in ("the ", "a ", "an "):
+        if s.startswith(prefix):
+            s = s[len(prefix):]
+            break
+    return s
+
+
+def _abs_get(path: str, params=None):
+    resp = requests.get(
+        f"{ABS_URL}{path}", params=params, timeout=6,
+        headers={"Authorization": f"Bearer {ABS_TOKEN}",
+                 "User-Agent": "BootleggerBookClubTracker/1.0"})
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _abs_book_libraries() -> list[str]:
+    libs = _abs_get("/api/libraries").get("libraries", [])
+    return [lb["id"] for lb in libs if lb.get("mediaType", "book") == "book"]
+
+
+def abs_find_item(title: str, author: str) -> str | None:
+    """Search every book library for a confident title match; returns the
+    Audiobookshelf library-item id or None. Conservative on purpose — a
+    missing link beats a wrong one."""
+    want_title = _abs_norm(title)
+    want_author_words = set(_abs_norm(author).split())
+    if not want_title:
+        return None
+    best = None  # (score, item_id)
+    for lib_id in _abs_book_libraries():
+        data = _abs_get(f"/api/libraries/{lib_id}/search",
+                        params={"q": title, "limit": 6})
+        for hit in data.get("book", []):
+            item = hit.get("libraryItem") or {}
+            meta = ((item.get("media") or {}).get("metadata")) or {}
+            got_title = _abs_norm(meta.get("title") or "")
+            got_author_words = set(_abs_norm(meta.get("authorName") or "").split())
+            if not got_title or not item.get("id"):
+                continue
+            title_exact = got_title == want_title
+            title_close = want_title in got_title or got_title in want_title
+            author_ok = (not want_author_words or not got_author_words
+                         or bool(want_author_words & got_author_words))
+            if title_exact and author_ok:
+                score = 3
+            elif title_exact:
+                score = 2
+            elif title_close and author_ok:
+                score = 1
+            else:
+                continue
+            if best is None or score > best[0]:
+                best = (score, item["id"])
+    return best[1] if best else None
+
+
+def abs_lookup_and_store(db, book_id: int, title: str, author: str):
+    """Best-effort synchronous lookup used when a book is saved. Network
+    trouble is swallowed — the background worker retries later."""
+    if not ABS_ENABLED:
+        return
+    try:
+        item_id = abs_find_item(title, author)
+        db.execute("UPDATE books SET abs_item_id = ?, abs_checked_at = "
+                   "datetime('now') WHERE id = ?", (item_id, book_id))
+    except requests.RequestException:
+        db.execute("UPDATE books SET abs_item_id = NULL, abs_checked_at = NULL "
+                   "WHERE id = ?", (book_id,))
+
+
+def abs_links_for(item_id: str | None) -> dict:
+    if not (ABS_ENABLED and item_id):
+        return {"abs_link": None}
+    if ABS_APP_LINK_TEMPLATE:
+        return {"abs_link": ABS_APP_LINK_TEMPLATE.replace("{id}", item_id)}
+    return {"abs_link": f"{ABS_PUBLIC_URL}/item/{item_id}"}
+
+
+def _abs_backfill_once():
+    """Match a handful of unlinked books per cycle: never-checked books,
+    plus unmatched ones not retried in the last day (new audiobooks appear
+    on the shelf all the time). Matched books are left alone."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """SELECT id, title, author FROM books
+               WHERE status IN ('current', 'upcoming') AND abs_item_id IS NULL
+                 AND (abs_checked_at IS NULL
+                      OR abs_checked_at < datetime('now', '-1 day'))
+               ORDER BY abs_checked_at IS NOT NULL, id LIMIT 5""").fetchall()
+        for r in rows:
+            try:
+                item_id = abs_find_item(r["title"], r["author"])
+            except requests.RequestException:
+                break  # server unreachable; try again next cycle
+            conn.execute("UPDATE books SET abs_item_id = ?, abs_checked_at = "
+                         "datetime('now') WHERE id = ?", (item_id, r["id"]))
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def _abs_worker():
+    time.sleep(10)  # let the app finish starting
+    while True:
+        try:
+            _abs_backfill_once()
+        except Exception:
+            pass
+        time.sleep(600)  # every 10 minutes
+
+
+if ABS_ENABLED:
+    threading.Thread(target=_abs_worker, daemon=True).start()
+
 
 # --------------------------------------------------------------------------
 # Household Hub API (read-only, bearer-token, off unless HUB_API_TOKEN is set)
@@ -1005,6 +1154,7 @@ def book_new(club_id: int):
                 (club_id, v["title"], v["author"], v["cover_url"],
                  v["meeting_date"], v["portion"], next_pos))
             _save_sections(db, cur.lastrowid, v)
+            abs_lookup_and_store(db, cur.lastrowid, v["title"], v["author"])
             if v["status"] == "current":
                 _make_current(db, club_id, cur.lastrowid)
             db.commit()
@@ -1038,6 +1188,8 @@ def book_edit(book_id: int):
                 (v["title"], v["author"], v["cover_url"],
                  v["meeting_date"], v["portion"], book_id))
             _save_sections(db, book_id, v)
+            if (v["title"], v["author"]) != (book["title"], book["author"]):
+                abs_lookup_and_store(db, book_id, v["title"], v["author"])
             if v["status"] != book["status"]:
                 if v["status"] == "current":
                     _make_current(db, club["id"], book_id)

@@ -1015,3 +1015,38 @@ input[type="url"]:disabled { opacity: 0.45; }
 @media (max-width: 640px) {
   .cred-form { grid-template-columns: 1fr; }
 }
+
+/* Audiobookshelf listen links */
+.abs-line { margin: -0.4rem 0 1rem; }
+.abs-chip {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  padding: 0.3rem 0.8rem;
+  transition: background 0.15s;
+}
+.abs-chip:hover { background: var(--brass); border-color: var(--brass); }
+.abs-chip-sm {
+  font-size: 0.68rem;
+  padding: 0.12rem 0.5rem;
+  background: transparent;
+  color: var(--ink-soft);
+  border-color: var(--line);
+  margin-left: 0.1rem;
+  vertical-align: middle;
+}
+.abs-chip-sm:hover { color: var(--paper); }
+
+.board-abs { margin: 0.6rem 0 0; font-size: clamp(0.85rem, 1.3vw, 1.05rem); }
+.board-abs a {
+  color: var(--brass-bright);
+  text-decoration: none;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid rgba(201, 160, 74, 0.4);
+}

@@ -63,6 +63,9 @@
         </dl>
       {% endif %}
 
+      {% if current.abs_link %}
+      <p class="abs-line"><a class="abs-chip" href="{{ current.abs_link }}" target="_blank" rel="noopener">&#127911; Listen on Audiobookshelf</a></p>
+      {% endif %}
       {% if can_manage %}
       <div class="btn-row">
         <form method="post" action="{{ url_for('book_action', book_id=current.id) }}">
@@ -100,6 +103,7 @@
         {% endif %}
         <div class="date-line">
           {% if b.next_date %}<span class="date-chip date-meet">{{ 'Starts' if b.sections else 'Meets' }} {{ b.next_date|short_date }}</span>{% endif %}
+          {% if b.abs_link %}<a class="abs-chip abs-chip-sm" href="{{ b.abs_link }}" target="_blank" rel="noopener">&#127911; Listen</a>{% endif %}
         </div>
       </div>
       {% if can_manage %}
@@ -134,6 +138,7 @@
         <strong class="book-title">{{ b.title }}</strong>
         <span class="book-author">{{ b.author }}</span>
         {% if b.next_date %}<span class="muted small">Discussed {{ b.next_date|short_date }}</span>{% endif %}
+        {% if b.abs_link %}<a class="abs-chip abs-chip-sm" href="{{ b.abs_link }}" target="_blank" rel="noopener">&#127911; Listen</a>{% endif %}
       </div>
       {% if can_manage %}
       <div class="book-row-actions">

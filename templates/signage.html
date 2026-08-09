@@ -46,6 +46,9 @@
           <div class="board-book">
             <p class="board-title">{{ b.current.title }}</p>
             <p class="board-author">{{ b.current.author }}</p>
+            {% if b.current.abs_link %}
+              <p class="board-abs"><a href="{{ b.current.abs_link }}" target="_blank" rel="noopener">&#127911; Audiobook on the shelf</a></p>
+            {% endif %}
             {% if b.current.next_section %}
               <p class="board-portion">Next: {{ b.current.next_section.portion or 'next section' }}</p>
             {% elif b.current.sections and b.current.all_sections_done %}
