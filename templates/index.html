@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-head">
-  <h1>{{ person.name + "'s clubs" if person else "The Clubs" }}</h1>
+  <h1>{{ filter_person.name + "'s clubs" if filter_person else "The Clubs" }}</h1>
   {% if is_admin %}
     <div class="btn-row">
       <a class="btn btn-brass" href="{{ url_for('club_new') }}">+ New club</a>
@@ -13,9 +13,9 @@
 {% if people %}
 <div class="people-filter">
   <span class="eyebrow">Reader</span>
-  <a class="person-chip {{ 'person-chip-on' if not person }}" href="{{ url_for('home') }}">Everyone</a>
+  <a class="person-chip {{ 'person-chip-on' if not filter_person }}" href="{{ url_for('home') }}">Everyone</a>
   {% for p in people %}
-    <a class="person-chip {{ 'person-chip-on' if person and person.id == p.id }}"
+    <a class="person-chip {{ 'person-chip-on' if filter_person and filter_person.id == p.id }}"
        href="{{ url_for('home', person=p.id) }}">{{ p.name }}</a>
   {% endfor %}
 </div>
@@ -23,8 +23,8 @@
 
 {% if not cards %}
   <div class="empty">
-    {% if person %}
-      <p>{{ person.name }} isn't in any clubs yet.</p>
+    {% if filter_person %}
+      <p>{{ filter_person.name }} isn't in any clubs yet.</p>
       <p class="muted"><a href="{{ url_for('home') }}">Show everyone</a></p>
     {% else %}
       <p>No clubs yet.</p>

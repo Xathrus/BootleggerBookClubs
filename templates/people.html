@@ -3,7 +3,7 @@
 {% block content %}
 <div class="form-card">
   <h1>People</h1>
-  <p class="muted">Add family and friends here, then pick who's in each club on the club's edit page. No accounts or logins — just names.</p>
+  <p class="muted">Add family and friends here, then pick who's in each club on the club's edit page. Give someone a username and password if they should be able to log in and manage their own club's books — people without a login still show everywhere as members.</p>
 
   <form method="post" class="inline-add">
     <input type="text" name="name" required maxlength="100" placeholder="Add a person, e.g. Aunt Carol">
@@ -13,20 +13,36 @@
   {% if people %}
   <ul class="book-list people-list">
     {% for p in people %}
-    <li class="book-row">
-      <div class="book-row-info">
-        <strong class="book-title">{{ p.name }}</strong>
-        <span class="muted small">
-          {% if memberships[p.id] %}{{ memberships[p.id]|join(' · ') }}{% else %}Not in any clubs yet{% endif %}
-        </span>
+    <li class="person-admin-row">
+      <div class="person-admin-head">
+        <div>
+          <strong class="book-title">{{ p.name }}</strong>
+          {% if p.username and p.password_hash %}
+            <span class="login-badge">logs in as “{{ p.username }}”</span>
+          {% else %}
+            <span class="login-badge login-badge-off">no login</span>
+          {% endif %}
+          <span class="muted small" style="display:block">
+            {% if memberships[p.id] %}{{ memberships[p.id]|join(' · ') }}{% else %}Not in any clubs yet{% endif %}
+          </span>
+        </div>
+        <div class="book-row-actions">
+          <a class="btn" href="{{ url_for('home', person=p.id) }}">View clubs</a>
+          <form method="post" action="{{ url_for('person_delete', person_id=p.id) }}"
+                onsubmit="return confirm('Remove {{ p.name }} from everything?')">
+            <button class="btn btn-danger btn-icon" title="Remove">&times;</button>
+          </form>
+        </div>
       </div>
-      <div class="book-row-actions">
-        <a class="btn" href="{{ url_for('home', person=p.id) }}">View their clubs</a>
-        <form method="post" action="{{ url_for('person_delete', person_id=p.id) }}"
-              onsubmit="return confirm('Remove {{ p.name }} from everything?')">
-          <button class="btn btn-danger btn-icon" title="Remove">&times;</button>
-        </form>
-      </div>
+      <form method="post" class="cred-form" action="{{ url_for('person_credentials', person_id=p.id) }}">
+        <input type="text" name="username" value="{{ p.username or '' }}"
+               maxlength="30" placeholder="username" autocapitalize="none" autocomplete="off">
+        <input type="password" name="password" maxlength="100"
+               placeholder="{{ 'new password (blank = keep)' if p.password_hash else 'set a password' }}"
+               autocomplete="new-password">
+        <button class="btn" type="submit">Save login</button>
+      </form>
+      <p class="muted small cred-hint">Clear the username and save to disable their login.</p>
     </li>
     {% endfor %}
   </ul>

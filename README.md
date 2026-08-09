@@ -7,12 +7,13 @@ A small, self-hosted hub for tracking what several book clubs are reading — wh
 - **Multiple clubs**, each with its own name, description, current book, queue of upcoming books, and reading history.
 - **Books** carry a title, author, cover image, a meeting date, and an optional "portion" note like *Chapters 1–10* when the club isn't reading the whole book.
 - **Split books**: a book can be read across several meetings — give each section its own date and chapter note, and every view highlights the *next* section due.
-- **People**: add family and friends by name and check them off per club. Names show on club cards and the display, and clicking a name filters everything down to that person's clubs. (No accounts, ratings, or RSVPs — just names.)
+- **People**: add family and friends by name and check them off per club. Names show on club cards and the display, and clicking names filters everything down to those people's clubs — the display supports selecting several people at once. (No accounts, ratings, or RSVPs — just names.)
 - **Cover uploads**: search auto-fills covers from Open Library, paste any image URL, or upload your own file — uploads are resized to 600 × 900 automatically and stored alongside the database.
 - **Book search** against the Open Library API (free, no API key needed) that auto-fills title, author, and cover art. Manual entry always works as a fallback.
 - **Calendar view** showing every meeting (including each section of a split book) across all clubs, color-coded per club.
 - **Digital signage** at `/display` (or `/signage`) — a dark, high-contrast board sorted soonest-meeting-first, designed to be readable from across the room on a TV or tablet. It refreshes itself every 5 minutes with no page flash.
-- **One admin login** (password set via environment variable). Everyone else browses freely.
+- **Auto-finish**: when a whole-book read's meeting date passes (or a split book's final section passes), it moves to history automatically and the next queued book is promoted. Books with a partial-read note are left for a human to decide.
+- **Member logins**: the admin can give any person a username and password. Logged-in members can manage the books of clubs they belong to; the admin (username `admin`, password from the environment variable) manages everything — clubs, people, credentials, and all books. Browsing never requires a login.
 - **Installable PWA**: add it to an iPhone home screen and it opens full-screen like a native app, with offline fallback to the last-seen schedule.
 
 ## Tech stack, in plain terms
@@ -22,7 +23,7 @@ A small, self-hosted hub for tracking what several book clubs are reading — wh
 - **One Docker container** — the whole app builds and runs with two commands. No separate database server, no reverse proxy inside, no message queues. Cloudflare Tunnel handles HTTPS and exposure to the internet, so the container just serves plain HTTP on port 8080.
 - **Open Library** for book search, because it's free and needs no API key or signup — there is nothing to configure or pay for.
 
-Member logins, ratings, and RSVPs remain out of scope, but the `people` table gives them a natural home if they're ever wanted.
+Ratings and RSVPs remain out of scope, but the `people` table gives a natural home for more if it's ever wanted.
 
 ## Running it
 

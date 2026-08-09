@@ -14,14 +14,13 @@
     <header class="signage-head">
       <div class="signage-rule"></div>
       <h1 class="signage-wordmark">Bootlegger</h1>
-      <p class="signage-sub">{{ now }} &mdash; {{ person.name + "'s reading" if person else "what we're reading" }}</p>
+      <p class="signage-sub">{{ now }} &mdash; {{ heading }}</p>
       <div class="signage-rule"></div>
-      {% if people %}
+      {% if chips %}
       <nav class="signage-filter">
-        <a class="sig-chip {{ 'sig-chip-on' if not person }}" href="{{ url_for('signage') }}">Everyone</a>
-        {% for p in people %}
-        <a class="sig-chip {{ 'sig-chip-on' if person and person.id == p.id }}"
-           href="{{ url_for('signage', person=p.id) }}">{{ p.name }}</a>
+        <a class="sig-chip {{ 'sig-chip-on' if not selected }}" href="{{ url_for('signage') }}">Everyone</a>
+        {% for c in chips %}
+        <a class="sig-chip {{ 'sig-chip-on' if c.on }}" href="{{ c.url }}">{{ c.person.name }}</a>
         {% endfor %}
       </nav>
       {% endif %}
@@ -86,8 +85,8 @@
       </article>
       {% endfor %}
     </div>
-    {% elif person %}
-    <p class="board-idle" style="text-align:center">{{ person.name }} isn't in any clubs yet.</p>
+    {% elif selected %}
+    <p class="board-idle" style="text-align:center">No clubs for that selection yet.</p>
     {% else %}
     <p class="board-idle" style="text-align:center">No clubs yet — check back soon.</p>
     {% endif %}

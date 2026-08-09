@@ -12,14 +12,18 @@
       </p>
     {% endif %}
   </div>
-  {% if is_admin %}
+  {% if can_manage or is_admin %}
   <div class="btn-row">
+    {% if can_manage %}
     <a class="btn btn-brass" href="{{ url_for('book_new', club_id=club.id) }}">+ Add book</a>
+    {% endif %}
+    {% if is_admin %}
     <a class="btn" href="{{ url_for('club_edit', club_id=club.id) }}">Edit club</a>
     <form method="post" action="{{ url_for('club_delete', club_id=club.id) }}"
           onsubmit="return confirm('Delete this club and all of its books?')">
       <button class="btn btn-danger" type="submit">Delete</button>
     </form>
+    {% endif %}
   </div>
   {% endif %}
 </div>
@@ -59,7 +63,7 @@
         </dl>
       {% endif %}
 
-      {% if is_admin %}
+      {% if can_manage %}
       <div class="btn-row">
         <form method="post" action="{{ url_for('book_action', book_id=current.id) }}">
           <input type="hidden" name="action" value="finish">
@@ -71,7 +75,7 @@
     </div>
   </div>
   {% else %}
-  <p class="muted">No current book. {% if is_admin %}Add one, or promote a book from the queue below.{% endif %}</p>
+  <p class="muted">No current book. {% if can_manage %}Add one, or promote a book from the queue below.{% endif %}</p>
   {% endif %}
 </section>
 
@@ -98,7 +102,7 @@
           {% if b.next_date %}<span class="date-chip date-meet">{{ 'Starts' if b.sections else 'Meets' }} {{ b.next_date|short_date }}</span>{% endif %}
         </div>
       </div>
-      {% if is_admin %}
+      {% if can_manage %}
       <div class="book-row-actions">
         <form method="post" action="{{ url_for('book_action', book_id=b.id) }}"><input type="hidden" name="action" value="up"><button class="btn btn-icon" title="Move up" {{ 'disabled' if loop.first }}>&uarr;</button></form>
         <form method="post" action="{{ url_for('book_action', book_id=b.id) }}"><input type="hidden" name="action" value="down"><button class="btn btn-icon" title="Move down" {{ 'disabled' if loop.last }}>&darr;</button></form>
@@ -131,7 +135,7 @@
         <span class="book-author">{{ b.author }}</span>
         {% if b.next_date %}<span class="muted small">Discussed {{ b.next_date|short_date }}</span>{% endif %}
       </div>
-      {% if is_admin %}
+      {% if can_manage %}
       <div class="book-row-actions">
         <form method="post" action="{{ url_for('book_action', book_id=b.id) }}"><input type="hidden" name="action" value="requeue"><button class="btn">Re-queue</button></form>
         <form method="post" action="{{ url_for('book_action', book_id=b.id) }}" onsubmit="return confirm('Remove this book?')"><input type="hidden" name="action" value="delete"><button class="btn btn-danger btn-icon" title="Delete">&times;</button></form>

@@ -2,16 +2,26 @@
 Bootlegger Book Club Tracker
 A small self-hosted hub for tracking books across multiple book clubs.
 
-- Public, read-only pages for everyone (home, club pages, calendar, /display signage)
-- One admin login (ADMIN_PASSWORD env var) for clubs, books, people, dates
-- SQLite database stored in ./data/bootlegger.db (migrations run automatically)
-- Book search powered by the Open Library API (free, no API key)
+Access model:
+- Everyone can view everything with no login (including /display signage).
+- People can be given a username + password. A logged-in person can manage
+  the books of any club they belong to.
+- The admin (username "admin", password from the ADMIN_PASSWORD env var)
+  can do everything: clubs, people, credentials, and all books.
+
+Books whose meeting has passed are finished automatically when the whole
+book was being read (no portion note, or the final section has passed).
+
+SQLite database in ./data/bootlegger.db — migrations run automatically.
+Book search powered by the Open Library API (free, no API key).
 """
 
 import hmac
 import os
+import re
 import secrets
 import sqlite3
+import time
 from datetime import date, datetime, timedelta
 from functools import wraps
 
@@ -19,6 +29,7 @@ import requests
 from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
                    request, send_from_directory, session, url_for)
 from PIL import Image, UnidentifiedImageError
+from werkzeug.security import check_password_hash, generate_password_hash
 
 # --------------------------------------------------------------------------
 # Configuration
@@ -38,10 +49,10 @@ COVER_MAX = (600, 900)
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
+USERNAME_RE = re.compile(r"^[a-z0-9._-]{2,30}$")
+
 
 def _load_secret_key() -> str:
-    """Use SECRET_KEY from the environment, or generate one once and keep it
-    in the data folder so logins survive restarts."""
     env_key = os.environ.get("SECRET_KEY")
     if env_key:
         return env_key
@@ -62,7 +73,6 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024  # 15 MB upload ceiling
 
-# Calendar accent colors cycled across clubs (index = club id % len)
 CLUB_ACCENTS = ["#B08D3E", "#7A2E2A", "#3E5F4B", "#5B4A78", "#8C6239", "#2F5D6B"]
 
 # --------------------------------------------------------------------------
@@ -83,8 +93,8 @@ CREATE TABLE IF NOT EXISTS books (
     title        TEXT NOT NULL,
     author       TEXT NOT NULL DEFAULT '',
     cover_url    TEXT NOT NULL DEFAULT '',
-    meeting_date TEXT,                -- ISO date; NULL when book is split into sections
-    portion      TEXT NOT NULL DEFAULT '',  -- e.g. "Chapters 1-10"; empty = whole book
+    meeting_date TEXT,
+    portion      TEXT NOT NULL DEFAULT '',
     status       TEXT NOT NULL DEFAULT 'upcoming'
                  CHECK (status IN ('current', 'upcoming', 'past')),
     queue_pos    INTEGER NOT NULL DEFAULT 0,
@@ -94,11 +104,12 @@ CREATE TABLE IF NOT EXISTS books (
 
 CREATE INDEX IF NOT EXISTS idx_books_club_status ON books (club_id, status, queue_pos);
 
--- People who belong to clubs (names only — no accounts, no logins)
 CREATE TABLE IF NOT EXISTS people (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    username      TEXT,          -- set by the admin to enable login
+    password_hash TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS club_people (
@@ -107,12 +118,11 @@ CREATE TABLE IF NOT EXISTS club_people (
     PRIMARY KEY (club_id, person_id)
 );
 
--- For books read across several meetings: one row per section
 CREATE TABLE IF NOT EXISTS book_sections (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     book_id   INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
-    meet_date TEXT NOT NULL,          -- ISO date for this section's meeting
-    portion   TEXT NOT NULL DEFAULT '',  -- e.g. "Chapters 1-5"
+    meet_date TEXT NOT NULL,
+    portion   TEXT NOT NULL DEFAULT '',
     position  INTEGER NOT NULL DEFAULT 0
 );
 
@@ -139,15 +149,22 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA)
 
-    # Migration: earlier versions had a separate due_date on books.
-    # Meeting date is now the only date; keep whichever value exists.
+    # Migration: v1 had a separate due_date on books
     cols = [r[1] for r in conn.execute("PRAGMA table_info(books)").fetchall()]
     if "due_date" in cols:
         conn.execute("UPDATE books SET meeting_date = COALESCE(meeting_date, due_date)")
         try:
             conn.execute("ALTER TABLE books DROP COLUMN due_date")
         except sqlite3.OperationalError:
-            pass  # very old SQLite: the column simply goes unused
+            pass
+
+    # Migration: v2 people table predates logins
+    pcols = [r[1] for r in conn.execute("PRAGMA table_info(people)").fetchall()]
+    if "username" not in pcols:
+        conn.execute("ALTER TABLE people ADD COLUMN username TEXT")
+        conn.execute("ALTER TABLE people ADD COLUMN password_hash TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_people_username "
+                 "ON people (username) WHERE username IS NOT NULL")
 
     conn.commit()
     conn.close()
@@ -156,7 +173,7 @@ def init_db():
 init_db()
 
 # --------------------------------------------------------------------------
-# Auth
+# Auth & permissions
 # --------------------------------------------------------------------------
 
 
@@ -164,10 +181,49 @@ def is_admin() -> bool:
     return bool(session.get("admin"))
 
 
+def current_person() -> dict | None:
+    pid = session.get("person_id")
+    if not pid:
+        return None
+    row = get_db().execute("SELECT * FROM people WHERE id = ?", (pid,)).fetchone()
+    if row is None:                      # person was deleted; drop the session
+        session.pop("person_id", None)
+        return None
+    return dict(row)
+
+
+def can_manage_club(club_id: int) -> bool:
+    """Admin manages everything; a logged-in person manages the books of
+    clubs they belong to."""
+    if is_admin():
+        return True
+    person = current_person()
+    if not person:
+        return False
+    row = get_db().execute(
+        "SELECT 1 FROM club_people WHERE club_id = ? AND person_id = ?",
+        (club_id, person["id"])).fetchone()
+    return row is not None
+
+
+def guard_club(club_id: int):
+    """Returns None when the current user may manage this club's books,
+    otherwise a redirect response."""
+    if can_manage_club(club_id):
+        return None
+    if not is_admin() and not current_person():
+        return redirect(url_for("login", next=request.path))
+    flash("Only members of this club (or the admin) can manage its books.", "error")
+    return redirect(url_for("club_detail", club_id=club_id))
+
+
 def admin_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if not is_admin():
+            if current_person():
+                flash("That page is for the admin.", "error")
+                return redirect(url_for("home"))
             return redirect(url_for("login", next=request.path))
         return view(*args, **kwargs)
     return wrapped
@@ -175,25 +231,41 @@ def admin_required(view):
 
 @app.context_processor
 def inject_globals():
-    return {"is_admin": is_admin(), "today": date.today().isoformat()}
+    return {"is_admin": is_admin(), "person": current_person(),
+            "today": date.today().isoformat()}
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        username = (request.form.get("username") or "").strip().lower()
         supplied = request.form.get("password", "")
-        if not ADMIN_PASSWORD:
-            flash("No admin password is configured. Set the ADMIN_PASSWORD "
-                  "environment variable and restart the app.", "error")
-        elif hmac.compare_digest(supplied, ADMIN_PASSWORD):
-            session.permanent = True
-            session["admin"] = True
+        ok = False
+        if username == "admin":
+            if not ADMIN_PASSWORD:
+                flash("No admin password is configured. Set the ADMIN_PASSWORD "
+                      "environment variable and restart the app.", "error")
+            elif hmac.compare_digest(supplied, ADMIN_PASSWORD):
+                session.clear()
+                session.permanent = True
+                session["admin"] = True
+                ok = True
+        else:
+            row = get_db().execute(
+                "SELECT * FROM people WHERE username = ?", (username,)).fetchone()
+            if row and row["password_hash"] and \
+                    check_password_hash(row["password_hash"], supplied):
+                session.clear()
+                session.permanent = True
+                session["person_id"] = row["id"]
+                ok = True
+        if ok:
             target = request.args.get("next") or url_for("home")
             if not target.startswith("/"):
                 target = url_for("home")
             return redirect(target)
-        else:
-            flash("That password didn't match.", "error")
+        if username != "admin" or ADMIN_PASSWORD:
+            flash("That username and password didn't match.", "error")
     return render_template("login.html")
 
 
@@ -201,6 +273,52 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("home"))
+
+# --------------------------------------------------------------------------
+# Automatic finishing of past-date whole-book reads
+# --------------------------------------------------------------------------
+
+_last_sweep = 0.0
+
+
+def _finish_book(db, book_id: int, club_id: int):
+    """Move a book to history and promote the first queued book."""
+    db.execute("UPDATE books SET status = 'past', finished_at = datetime('now') "
+               "WHERE id = ?", (book_id,))
+    nxt = db.execute(
+        "SELECT id FROM books WHERE club_id = ? AND status = 'upcoming' "
+        "ORDER BY queue_pos, id LIMIT 1", (club_id,)).fetchone()
+    if nxt:
+        _make_current(db, club_id, nxt["id"])
+
+
+@app.before_request
+def auto_finish_sweep():
+    """Once a minute, finish any current book whose reading is complete:
+    - a whole-book read (empty portion, no sections) whose meeting has passed
+    - a sectioned book whose final section meeting has passed
+    Books with a partial-read portion note are left for a human to decide."""
+    global _last_sweep
+    if time.time() - _last_sweep < 60:
+        return
+    _last_sweep = time.time()
+    db = get_db()
+    today_iso = date.today().isoformat()
+    finished = db.execute(
+        """SELECT id, club_id FROM books b
+           WHERE b.status = 'current' AND (
+             (b.portion = '' AND b.meeting_date IS NOT NULL
+              AND b.meeting_date < ?
+              AND NOT EXISTS (SELECT 1 FROM book_sections s WHERE s.book_id = b.id))
+             OR
+             (EXISTS (SELECT 1 FROM book_sections s WHERE s.book_id = b.id)
+              AND (SELECT MAX(meet_date) FROM book_sections s
+                   WHERE s.book_id = b.id) < ?)
+           )""", (today_iso, today_iso)).fetchall()
+    for row in finished:
+        _finish_book(db, row["id"], row["club_id"])
+    if finished:
+        db.commit()
 
 # --------------------------------------------------------------------------
 # Shared queries / formatting
@@ -226,9 +344,6 @@ def book_sections_for(book_id: int) -> list[dict]:
 
 
 def enrich_book(row) -> dict | None:
-    """Turn a book row into a dict with its sections, the next section that
-    hasn't been discussed yet, and a single 'next_date' used for sorting
-    and display everywhere."""
     if row is None:
         return None
     book = dict(row)
@@ -263,7 +378,7 @@ def club_books(club_id: int):
             [enrich_book(b) for b in past])
 
 
-def club_members(club_id: int) -> list[dict]:
+def club_member_list(club_id: int) -> list[dict]:
     rows = get_db().execute(
         """SELECT p.* FROM people p
            JOIN club_people cp ON cp.person_id = p.id
@@ -283,13 +398,15 @@ def person_or_none(person_id) -> dict | None:
     return dict(row) if row else None
 
 
-def clubs_query(person_id=None):
+def clubs_query(person_ids=None):
     db = get_db()
-    if person_id:
+    if person_ids:
+        marks = ",".join("?" * len(person_ids))
         return db.execute(
-            """SELECT c.* FROM clubs c
-               JOIN club_people cp ON cp.club_id = c.id
-               WHERE cp.person_id = ? ORDER BY c.name""", (person_id,)).fetchall()
+            f"""SELECT DISTINCT c.* FROM clubs c
+                JOIN club_people cp ON cp.club_id = c.id
+                WHERE cp.person_id IN ({marks}) ORDER BY c.name""",
+            list(person_ids)).fetchall()
     return db.execute("SELECT * FROM clubs ORDER BY name").fetchall()
 
 
@@ -319,9 +436,9 @@ app.jinja_env.filters["short_date"] = short_date
 # --------------------------------------------------------------------------
 
 
-def _club_cards(person_id=None):
+def _club_cards(person_ids=None):
     cards = []
-    for club in clubs_query(person_id):
+    for club in clubs_query(person_ids):
         current, upcoming, _past = club_books(club["id"])
         cards.append({
             "club": club,
@@ -329,7 +446,7 @@ def _club_cards(person_id=None):
             "current": current,
             "next_up": upcoming[0] if upcoming else None,
             "queue_len": len(upcoming),
-            "members": club_members(club["id"]),
+            "members": club_member_list(club["id"]),
         })
     return cards
 
@@ -337,10 +454,10 @@ def _club_cards(person_id=None):
 @app.route("/")
 def home():
     person_id = request.args.get("person", type=int)
-    person = person_or_none(person_id)
+    filt = person_or_none(person_id)
     return render_template("index.html",
-                           cards=_club_cards(person["id"] if person else None),
-                           people=all_people(), person=person)
+                           cards=_club_cards([filt["id"]] if filt else None),
+                           people=all_people(), filter_person=filt)
 
 
 @app.route("/club/<int:club_id>")
@@ -349,7 +466,8 @@ def club_detail(club_id: int):
     current, upcoming, past = club_books(club_id)
     return render_template("club.html", club=club, accent=club_accent(club_id),
                            current=current, upcoming=upcoming, past=past,
-                           members=club_members(club_id))
+                           members=club_member_list(club_id),
+                           can_manage=can_manage_club(club_id))
 
 
 @app.route("/calendar")
@@ -395,7 +513,6 @@ def calendar_view():
     for day_events in events_by_day.values():
         day_events.sort(key=lambda e: e["club"])
 
-    # Build week rows (Sunday-first grid)
     start_pad = (first.weekday() + 1) % 7
     days_in_month = (next_month - timedelta(days=1)).day
     cells: list[dict | None] = [None] * start_pad
@@ -423,24 +540,46 @@ def calendar_view():
 @app.route("/display")
 @app.route("/signage")
 def signage():
-    person_id = request.args.get("person", type=int)
-    person = person_or_none(person_id)
+    selected_ids = [pid for pid in request.args.getlist("person", type=int)]
+    people = all_people()
+    known_ids = {p["id"] for p in people}
+    selected_ids = [pid for pid in dict.fromkeys(selected_ids) if pid in known_ids]
+    selected = [p for p in people if p["id"] in selected_ids]
+
     boards = []
-    for club in clubs_query(person["id"] if person else None):
+    for club in clubs_query(selected_ids or None):
         current, upcoming, _past = club_books(club["id"])
         boards.append({
             "club": club,
             "accent": club_accent(club["id"]),
             "current": current,
             "next_up": upcoming[0] if upcoming else None,
-            "members": club_members(club["id"]),
+            "members": club_member_list(club["id"]),
         })
-    # Soonest meeting first; clubs with no scheduled date sink to the end
     boards.sort(key=lambda b: (b["current"] is None,
                                (b["current"] or {}).get("next_date") is None,
                                (b["current"] or {}).get("next_date") or "9999"))
-    return render_template("signage.html", boards=boards, people=all_people(),
-                           person=person,
+
+    # Each chip toggles that person in or out of the selection
+    chips = []
+    for p in people:
+        if p["id"] in selected_ids:
+            toggled = [i for i in selected_ids if i != p["id"]]
+        else:
+            toggled = selected_ids + [p["id"]]
+        chips.append({"person": p, "on": p["id"] in selected_ids,
+                      "url": url_for("signage", person=toggled) if toggled
+                             else url_for("signage")})
+
+    if selected:
+        names = [p["name"] for p in selected]
+        heading = (" & ".join(names) if len(names) <= 2
+                   else ", ".join(names[:-1]) + " & " + names[-1]) + "'s reading"
+    else:
+        heading = "what we're reading"
+
+    return render_template("signage.html", boards=boards, chips=chips,
+                           selected=selected, heading=heading,
                            now=datetime.now().strftime("%A, %B %-d"))
 
 # --------------------------------------------------------------------------
@@ -449,8 +588,9 @@ def signage():
 
 
 @app.route("/api/book-search")
-@admin_required
 def book_search():
+    if not is_admin() and not current_person():
+        return jsonify({"error": "Log in to search for books."}), 401
     q = (request.args.get("q") or "").strip()
     if len(q) < 2:
         return jsonify({"results": []})
@@ -479,7 +619,7 @@ def book_search():
     return jsonify({"results": results})
 
 # --------------------------------------------------------------------------
-# Admin: people
+# Admin: people & credentials
 # --------------------------------------------------------------------------
 
 
@@ -494,7 +634,8 @@ def people_admin():
         else:
             db.execute("INSERT INTO people (name) VALUES (?)", (name,))
             db.commit()
-            flash(f"Added {name}.", "ok")
+            flash(f"Added {name}. Set a username and password below if they "
+                  "should be able to log in.", "ok")
         return redirect(url_for("people_admin"))
     people = all_people()
     memberships = {}
@@ -504,6 +645,54 @@ def people_admin():
                WHERE cp.person_id = ? ORDER BY c.name""", (p["id"],)).fetchall()
         memberships[p["id"]] = [r["name"] for r in rows]
     return render_template("people.html", people=people, memberships=memberships)
+
+
+@app.route("/admin/people/<int:person_id>/credentials", methods=["POST"])
+@admin_required
+def person_credentials(person_id: int):
+    db = get_db()
+    person = db.execute("SELECT * FROM people WHERE id = ?", (person_id,)).fetchone()
+    if person is None:
+        abort(404)
+    username = (request.form.get("username") or "").strip().lower()
+    password = request.form.get("password") or ""
+
+    if not username:
+        db.execute("UPDATE people SET username = NULL, password_hash = NULL "
+                   "WHERE id = ?", (person_id,))
+        db.commit()
+        flash(f"Login disabled for {person['name']}.", "ok")
+        return redirect(url_for("people_admin"))
+
+    if username == "admin":
+        flash("“admin” is reserved.", "error")
+        return redirect(url_for("people_admin"))
+    if not USERNAME_RE.match(username):
+        flash("Usernames are 2–30 characters: lowercase letters, numbers, "
+              "dots, dashes, underscores.", "error")
+        return redirect(url_for("people_admin"))
+    taken = db.execute("SELECT id FROM people WHERE username = ? AND id != ?",
+                       (username, person_id)).fetchone()
+    if taken:
+        flash(f"The username “{username}” is already taken.", "error")
+        return redirect(url_for("people_admin"))
+
+    if password:
+        if len(password) < 6:
+            flash("Passwords need at least 6 characters.", "error")
+            return redirect(url_for("people_admin"))
+        db.execute("UPDATE people SET username = ?, password_hash = ? WHERE id = ?",
+                   (username, generate_password_hash(password), person_id))
+        db.commit()
+        flash(f"{person['name']} can now log in as “{username}”.", "ok")
+    elif person["password_hash"]:
+        db.execute("UPDATE people SET username = ? WHERE id = ?",
+                   (username, person_id))
+        db.commit()
+        flash(f"Username updated to “{username}” (password unchanged).", "ok")
+    else:
+        flash("Set a password too, so they can log in.", "error")
+    return redirect(url_for("people_admin"))
 
 
 @app.route("/admin/people/<int:person_id>/delete", methods=["POST"])
@@ -582,7 +771,7 @@ def club_edit(club_id: int):
             db.commit()
             flash("Club updated.", "ok")
             return redirect(url_for("club_detail", club_id=club_id))
-    member_ids = {m["id"] for m in club_members(club_id)}
+    member_ids = {m["id"] for m in club_member_list(club_id)}
     return render_template("club_form.html", club=club, people=all_people(),
                            member_ids=member_ids)
 
@@ -614,16 +803,12 @@ def cover_file(filename):
 
 
 def save_uploaded_cover(file_storage) -> str | None:
-    """Validate and store an uploaded cover image. Anything Pillow can read
-    is accepted; it's resized to fit COVER_MAX and saved as JPEG. Returns
-    the /covers/... URL, or None if the file wasn't a usable image."""
     try:
         img = Image.open(file_storage.stream)
         img.load()
     except (UnidentifiedImageError, OSError):
         return None
     if img.mode in ("RGBA", "P", "LA"):
-        # Flatten transparency onto paper-white so JPEG doesn't go black
         img = img.convert("RGBA")
         flat = Image.new("RGB", img.size, (244, 238, 225))
         flat.paste(img, mask=img.split()[-1])
@@ -637,8 +822,6 @@ def save_uploaded_cover(file_storage) -> str | None:
 
 
 def cleanup_cover(db, url: str | None):
-    """Remove an uploaded cover file once no book references it anymore.
-    External URLs (Open Library etc.) are left alone."""
     if not url or not url.startswith("/covers/"):
         return
     still_used = db.execute("SELECT COUNT(*) AS n FROM books WHERE cover_url = ?",
@@ -651,9 +834,8 @@ def cleanup_cover(db, url: str | None):
     except OSError:
         pass
 
-
 # --------------------------------------------------------------------------
-# Admin: books
+# Books (managed by club members and the admin)
 # --------------------------------------------------------------------------
 
 
@@ -672,7 +854,7 @@ def _book_form_values():
     if upload and upload.filename:
         saved = save_uploaded_cover(upload)
         if saved:
-            v["cover_url"] = saved  # an upload wins over the URL field
+            v["cover_url"] = saved
         else:
             v["cover_error"] = True
     return v
@@ -687,8 +869,6 @@ def _form_sections() -> list[tuple[str, str]]:
 
 
 def _save_sections(db, book_id: int, values: dict):
-    """Replace a book's sections from the form. When sectioned, the
-    book-level meeting date is cleared — the sections carry the dates."""
     db.execute("DELETE FROM book_sections WHERE book_id = ?", (book_id,))
     if values["sectioned"]:
         pairs = _form_sections()
@@ -717,10 +897,13 @@ def _renumber_queue(db, club_id: int):
         db.execute("UPDATE books SET queue_pos = ? WHERE id = ?", (pos, row["id"]))
 
 
+@app.route("/club/<int:club_id>/book/new", methods=["GET", "POST"])
 @app.route("/admin/club/<int:club_id>/book/new", methods=["GET", "POST"])
-@admin_required
 def book_new(club_id: int):
     club = fetch_club_or_404(club_id)
+    denied = guard_club(club_id)
+    if denied:
+        return denied
     if request.method == "POST":
         v = _book_form_values()
         if not v["title"]:
@@ -747,14 +930,17 @@ def book_new(club_id: int):
     return render_template("book_form.html", club=club, book=None, sections=[])
 
 
+@app.route("/book/<int:book_id>/edit", methods=["GET", "POST"])
 @app.route("/admin/book/<int:book_id>/edit", methods=["GET", "POST"])
-@admin_required
 def book_edit(book_id: int):
     db = get_db()
     book = db.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
     if book is None:
         abort(404)
     club = fetch_club_or_404(book["club_id"])
+    denied = guard_club(club["id"])
+    if denied:
+        return denied
     if request.method == "POST":
         v = _book_form_values()
         if not v["title"]:
@@ -792,24 +978,21 @@ def book_edit(book_id: int):
                            sections=book_sections_for(book_id))
 
 
+@app.route("/book/<int:book_id>/action", methods=["POST"])
 @app.route("/admin/book/<int:book_id>/action", methods=["POST"])
-@admin_required
 def book_action(book_id: int):
     db = get_db()
     book = db.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
     if book is None:
         abort(404)
     club_id = book["club_id"]
+    denied = guard_club(club_id)
+    if denied:
+        return denied
     action = request.form.get("action")
 
     if action == "finish":
-        db.execute("UPDATE books SET status = 'past', finished_at = datetime('now') "
-                   "WHERE id = ?", (book_id,))
-        nxt = db.execute(
-            "SELECT id FROM books WHERE club_id = ? AND status = 'upcoming' "
-            "ORDER BY queue_pos, id LIMIT 1", (club_id,)).fetchone()
-        if nxt:
-            _make_current(db, club_id, nxt["id"])
+        _finish_book(db, book_id, club_id)
         flash(f"“{book['title']}” moved to history.", "ok")
     elif action == "make_current":
         _make_current(db, club_id, book_id)

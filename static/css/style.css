@@ -976,3 +976,42 @@ input[type="file"]::file-selector-button {
   cursor: pointer;
 }
 input[type="url"]:disabled { opacity: 0.45; }
+
+/* People admin: credential rows */
+.person-admin-row {
+  padding: 0.9rem 0;
+  border-bottom: 1px dashed var(--line);
+}
+.person-admin-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.login-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brass);
+  border: 1px solid var(--brass);
+  border-radius: 2px;
+  padding: 0.05rem 0.4rem;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+.login-badge-off { color: var(--smoke); border-color: var(--line); }
+
+.cred-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+.cred-hint { margin: 0.3rem 0 0; }
+
+@media (max-width: 640px) {
+  .cred-form { grid-template-columns: 1fr; }
+}

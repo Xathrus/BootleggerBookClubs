@@ -32,9 +32,11 @@
         <a href="{{ url_for('calendar_view') }}" class="{{ 'active' if request.endpoint == 'calendar_view' }}">Calendar</a>
         <a href="{{ url_for('signage') }}">Display</a>
         {% if is_admin %}
-          <a href="{{ url_for('logout') }}" class="nav-admin">Log out</a>
+          <a href="{{ url_for('logout') }}" class="nav-admin">Log out (admin)</a>
+        {% elif person %}
+          <a href="{{ url_for('logout') }}" class="nav-admin">Log out ({{ person.name }})</a>
         {% else %}
-          <a href="{{ url_for('login') }}" class="nav-admin">Admin</a>
+          <a href="{{ url_for('login') }}" class="nav-admin">Log in</a>
         {% endif %}
       </nav>
     </div>
