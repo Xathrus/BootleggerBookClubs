@@ -1050,3 +1050,6 @@ input[type="url"]:disabled { opacity: 0.45; }
   letter-spacing: 0.08em;
   border-bottom: 1px solid rgba(201, 160, 74, 0.4);
 }
+
+.abs-line .abs-chip + .abs-chip { margin-left: 0.4rem; }
+.board-abs a + a { margin-left: 1rem; }

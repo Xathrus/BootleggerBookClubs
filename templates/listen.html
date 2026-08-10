@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Opening audiobook — Bootlegger{% endblock %}
+{% block content %}
+<div class="form-card form-card-narrow" style="text-align:center">
+  <span class="eyebrow eyebrow-accent">&#127911; Audiobook</span>
+  <h1>Opening your book…</h1>
+  <p class="muted">Trying the app first; the web player opens automatically if the app isn't installed.</p>
+  <div class="btn-row" style="justify-content:center; margin-top:1.2rem">
+    <a class="btn btn-brass" href="{{ app_url }}">Open in the app</a>
+    <a class="btn" href="{{ web_url }}">Open web player</a>
+  </div>
+</div>
+<script>
+  (function () {
+    // Attempt the app's URL scheme. If the app opens, this page is
+    // backgrounded and the fallback is skipped; otherwise hop to the
+    // Audiobookshelf web player after a short beat.
+    var appUrl = {{ app_url|tojson }};
+    var webUrl = {{ web_url|tojson }};
+    var started = Date.now();
+    window.location.href = appUrl;
+    setTimeout(function () {
+      // If we were backgrounded (app opened), don't yank the user around.
+      if (document.hidden || Date.now() - started > 2500) return;
+      window.location.replace(webUrl);
+    }, 1600);
+  })();
+</script>
+{% endblock %}

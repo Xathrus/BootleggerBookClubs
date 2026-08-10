@@ -63,8 +63,11 @@
         </dl>
       {% endif %}
 
-      {% if current.abs_link %}
-      <p class="abs-line"><a class="abs-chip" href="{{ current.abs_link }}" target="_blank" rel="noopener">&#127911; Listen on Audiobookshelf</a></p>
+      {% if current.abs_web_link %}
+      <p class="abs-line">
+        <a class="abs-chip" href="{{ current.abs_web_link }}" target="_blank" rel="noopener">&#127911; Audiobookshelf</a>
+        {% if current.abs_app_link %}<a class="abs-chip" href="{{ current.abs_app_link }}">&#9654; Open in app</a>{% endif %}
+      </p>
       {% endif %}
       {% if can_manage %}
       <div class="btn-row">
@@ -103,7 +106,8 @@
         {% endif %}
         <div class="date-line">
           {% if b.next_date %}<span class="date-chip date-meet">{{ 'Starts' if b.sections else 'Meets' }} {{ b.next_date|short_date }}</span>{% endif %}
-          {% if b.abs_link %}<a class="abs-chip abs-chip-sm" href="{{ b.abs_link }}" target="_blank" rel="noopener">&#127911; Listen</a>{% endif %}
+          {% if b.abs_web_link %}<a class="abs-chip abs-chip-sm" href="{{ b.abs_web_link }}" target="_blank" rel="noopener">&#127911; Web</a>{% endif %}
+          {% if b.abs_app_link %}<a class="abs-chip abs-chip-sm" href="{{ b.abs_app_link }}">&#9654; App</a>{% endif %}
         </div>
       </div>
       {% if can_manage %}
@@ -138,7 +142,8 @@
         <strong class="book-title">{{ b.title }}</strong>
         <span class="book-author">{{ b.author }}</span>
         {% if b.next_date %}<span class="muted small">Discussed {{ b.next_date|short_date }}</span>{% endif %}
-        {% if b.abs_link %}<a class="abs-chip abs-chip-sm" href="{{ b.abs_link }}" target="_blank" rel="noopener">&#127911; Listen</a>{% endif %}
+        {% if b.abs_web_link %}<a class="abs-chip abs-chip-sm" href="{{ b.abs_web_link }}" target="_blank" rel="noopener">&#127911; Web</a>{% endif %}
+        {% if b.abs_app_link %}<a class="abs-chip abs-chip-sm" href="{{ b.abs_app_link }}">&#9654; App</a>{% endif %}
       </div>
       {% if can_manage %}
       <div class="book-row-actions">

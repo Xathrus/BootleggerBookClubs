@@ -714,11 +714,28 @@ def abs_lookup_and_store(db, book_id: int, title: str, author: str):
 
 
 def abs_links_for(item_id: str | None) -> dict:
+    """Both links when available: the Audiobookshelf web player, and (when
+    ABS_APP_LINK_TEMPLATE is set) a direct app deep link shown beside it."""
     if not (ABS_ENABLED and item_id):
-        return {"abs_link": None}
-    if ABS_APP_LINK_TEMPLATE:
-        return {"abs_link": ABS_APP_LINK_TEMPLATE.replace("{id}", item_id)}
-    return {"abs_link": f"{ABS_PUBLIC_URL}/item/{item_id}"}
+        return {"abs_web_link": None, "abs_app_link": None}
+    return {
+        "abs_web_link": f"{ABS_PUBLIC_URL}/item/{item_id}",
+        "abs_app_link": (ABS_APP_LINK_TEMPLATE.replace("{id}", item_id)
+                         if ABS_APP_LINK_TEMPLATE else None),
+    }
+
+
+@app.route("/listen/<item_id>")
+def listen_redirect(item_id: str):
+    """Kept for bookmarks/shortcuts: tries the app scheme, falls back to
+    the web player. The in-app pages now link to both directly."""
+    if not ABS_ENABLED or not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", item_id):
+        abort(404)
+    web_url = f"{ABS_PUBLIC_URL}/item/{item_id}"
+    if not ABS_APP_LINK_TEMPLATE:
+        return redirect(web_url)
+    app_url = ABS_APP_LINK_TEMPLATE.replace("{id}", item_id)
+    return render_template("listen.html", app_url=app_url, web_url=web_url)
 
 
 def _abs_backfill_once():
