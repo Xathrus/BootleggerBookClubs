@@ -1,12 +1,12 @@
 {
-  "name": "Household Hub",
-  "short_name": "Hub",
-  "description": "Today, tomorrow, and this week for the household.",
+  "name": "Bootlegger Book Club Tracker",
+  "short_name": "Bootlegger",
+  "description": "What every club is reading, when it's due, and when we meet.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#EFF3EF",
-  "theme_color": "#24473C",
+  "background_color": "#f4eee1",
+  "theme_color": "#1c2b23",
   "icons": [
     { "src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },

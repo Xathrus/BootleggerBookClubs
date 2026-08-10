@@ -1,137 +1,74 @@
-# Household Hub
+# Bootlegger Book Club Tracker
 
-A small self-hosted, mobile-friendly web app you can pin to your phone's home screen like an app. It shows:
+A small, self-hosted hub for tracking what several book clubs are reading — who's on what book, when it's due, and when each club meets. Built for family and friends: everyone can view everything with just the link; one admin password controls the content.
 
-- **Today** — everything on the household's Google Calendars today
-- **Tomorrow** — same, for tomorrow
-- **This week** — the rest of the next 7 days
-- **Books due** — upcoming book club due dates for the people you choose, pulled from your Bootlegger Book Club Tracker
+## Features
 
-It runs as a single Docker container on a Proxmox LXC, following the same pattern as your other apps (Flask + Docker + Cloudflare Tunnel). There is no database — it just reads your calendar feeds and the book tracker's API, with a short in-memory cache so it stays fast and doesn't hammer Google.
+- **Multiple clubs**, each with its own name, description, current book, queue of upcoming books, and reading history.
+- **Books** carry a title, author, cover image, a meeting date, and an optional "portion" note like *Chapters 1–10* when the club isn't reading the whole book.
+- **Split books**: a book can be read across several meetings — give each section its own date and chapter note, and every view highlights the *next* section due.
+- **People**: add family and friends by name and check them off per club. Names show on club cards and the display, and clicking names filters everything down to those people's clubs — the display supports selecting several people at once. (No accounts, ratings, or RSVPs — just names.)
+- **Cover uploads**: search auto-fills covers from Open Library, paste any image URL, or upload your own file — uploads are resized to 600 × 900 automatically and stored alongside the database.
+- **Book search** against the Open Library API (free, no API key needed) that auto-fills title, author, and cover art. Manual entry always works as a fallback.
+- **Calendar view** showing every meeting (including each section of a split book) across all clubs, color-coded per club.
+- **Digital signage** at `/display` (or `/signage`) — a dark, high-contrast board sorted soonest-meeting-first, designed to be readable from across the room on a TV or tablet. It refreshes itself every 5 minutes with no page flash.
+- **Auto-finish**: when a whole-book read's meeting date passes (or a split book's final section passes), it moves to history automatically and the next queued book is promoted. Books with a partial-read note are left for a human to decide.
+- **Member logins**: the admin can give any person a username and password. Logged-in members can manage the books of clubs they belong to and change their own password; the admin (username `admin`, password from the environment variable) manages everything — clubs, people, credentials, and all books. Browsing never requires a login.
+- **Installable PWA**: add it to an iPhone home screen and it opens full-screen like a native app, with offline fallback to the last-seen schedule.
 
----
+## Tech stack, in plain terms
 
-## How it gets your calendar data
+- **Flask (Python)** — a small, boring, reliable web framework. One file of application code you can actually read.
+- **SQLite** — the database is a single file in the `data/` folder. Nothing to install, nothing to administer, trivially easy to back up (copy the folder).
+- **One Docker container** — the whole app builds and runs with two commands. No separate database server, no reverse proxy inside, no message queues. Cloudflare Tunnel handles HTTPS and exposure to the internet, so the container just serves plain HTTP on port 8080.
+- **Open Library** for book search, because it's free and needs no API key or signup — there is nothing to configure or pay for.
 
-It uses each Google Calendar's **secret iCal address** — a private, read-only URL Google provides for every calendar. No Google Cloud project, no OAuth, no API keys. The trade-off: **anyone who has the URL can read that calendar**, so the URLs live only in `config.yml` on your server. Treat them like passwords.
+Ratings and RSVPs remain out of scope, but the `people` table gives a natural home for more if it's ever wanted.
 
-### Getting the secret address for each calendar
+## Audiobookshelf links
 
-1. Open [Google Calendar on the web](https://calendar.google.com) (desktop browser).
-2. In the left sidebar under "My calendars," hover over the calendar → three dots → **Settings and sharing**.
-3. Scroll to **Integrate calendar**.
-4. Copy **Secret address in iCal format** (ends in `basic.ics`). *Not* the public address — the secret one.
-5. Repeat for each household calendar.
+If you run an [Audiobookshelf](https://www.audiobookshelf.org/) server, the tracker can link each book to its audiobook. Set `ABS_URL` and `ABS_TOKEN` in `.env` (token: Audiobookshelf → Settings → Users → your user → API Token) and restart. New and edited books are matched immediately; a background task links existing books within minutes and retries unmatched ones daily, so newly added audiobooks get picked up. Matching is by title (plus author when available) and is deliberately conservative — no link beats a wrong link.
 
-If you ever suspect a URL leaked, the same settings page has a **Reset** button that invalidates the old URL.
+Matched books show a "Listen" link on the club pages, home cards, and the display. Matched books always link to the Audiobookshelf web player. Set `ABS_APP_LINK_TEMPLATE` (with `{id}` as the item-id placeholder) to *also* show a deep link into a listening app beside it — e.g. `audiobooth://open/{id}` for [AudioBooth](https://github.com/AudioBooth/AudioBooth) on iOS — so people pick whichever suits their device. `/listen/<item-id>` remains available as a try-the-app-then-fall-back link for bookmarks and shortcuts.
 
----
+## Household Hub API
 
-## Step 1 — Create the LXC (same as your other apps)
-
-Any Debian 12 / Ubuntu 22.04+ LXC with Docker works. If you already have a container running Docker (like the one hosting the book tracker), you can deploy this alongside it and skip to Step 2 — just make sure port 8080 is free, or change the port in `docker-compose.yml`.
-
-Fresh LXC quick version:
-
-```bash
-# On the LXC (Debian 12), as root:
-apt update && apt install -y ca-certificates curl
-curl -fsSL https://get.docker.com | sh
-```
-
-For an unprivileged LXC, make sure `nesting=1` is set (Proxmox → container → Options → Features → Nesting), as with your other Docker containers.
-
-## Step 2 — Put the app on the server
-
-Copy the `household-hub` folder to the LXC (e.g. `scp -r household-hub root@<lxc-ip>:/opt/`), or push it to your Forgejo instance and clone it:
-
-```bash
-cd /opt/household-hub
-```
-
-## Step 3 — Configure
-
-```bash
-cp config.example.yml config.yml
-nano config.yml
-```
-
-Fill in:
-
-- One `calendars:` entry per Google Calendar — a display name, a color (shown as the bar/dot on each event), and its secret iCal URL.
-- The `bookclub:` section — the tracker's base URL, a shared token (see Step 5), and the list of people whose books should appear. Delete the section if you want to launch without it and add it later; the app re-reads `config.yml` every 30 seconds, so no restart is needed for config changes.
-- `timezone:` is already set to `America/Chicago`.
-
-## Step 4 — Build and run
-
-```bash
-docker compose up -d --build
-```
-
-Check it: open `http://<lxc-ip>:8080` from a browser on your LAN. You should see today's events within a couple of seconds. Logs if anything looks off:
-
-```bash
-docker logs -f household-hub
-```
-
-## Step 5 — Connect the book tracker
-
-The hub expects your Bootlegger Book Club Tracker to expose one new read-only endpoint:
+An optional read-only endpoint feeds upcoming book dates to a companion dashboard:
 
 ```
 GET /api/upcoming-books?days=7
-Header: Authorization: Bearer <token>
-
-Response:
-{"books": [
-  {"person": "Eric", "title": "...", "club": "...", "due_date": "YYYY-MM-DD"}
-]}
+Authorization: Bearer <token>
 ```
 
-Use the prompt in `BOOKCLUB_PROMPT.md` (in this folder) in your book tracker development conversation — it specifies the exact contract, auth, and deployment notes so the endpoint comes out compatible on the first try.
+It returns `{"books": [{"person", "title", "club", "due_date"}]}` — one entry per club member per book whose next meeting falls within the next `days` days (default 7, capped at 60, past dates excluded), sorted by date. For split books the next section's meeting date is used. The app doesn't track per-person completion, so every member of the club is listed for each book.
 
-Generate a token to share between the two apps:
+**To enable it:** set `HUB_API_TOKEN` in `.env` (generate one with `openssl rand -hex 32`) and restart. While the variable is unset the endpoint answers 503 and the feature is off; a missing or wrong token gets 401. Authentication is the bearer token only — no login cookie — so another container on the LAN can call it server-to-server.
+
+## Running it
+
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full beginner-friendly walkthrough (Proxmox LXC → Docker → Cloudflare Tunnel).
+
+The short version:
 
 ```bash
-openssl rand -hex 32
-```
-
-Put the same value in the tracker's environment (`HUB_API_TOKEN`) and in this app's `config.yml` (`api_token`).
-
-Since both apps live on your Proxmox network, point `api_url` at the tracker's **internal** address (e.g. `http://192.168.x.x:5000`) rather than its public Cloudflare hostname — faster, and the endpoint never needs to be exposed to the internet.
-
-## Step 6 — Expose it through Cloudflare Tunnel
-
-Add a public hostname to your existing tunnel, the same way as your other apps:
-
-1. Cloudflare Zero Trust → Networks → Tunnels → your tunnel → **Public Hostname** → Add.
-2. Subdomain: `hub` (or whatever you like), Service: `http://<lxc-ip>:8080`.
-
-**Strongly recommended:** since this shows your family's schedule, put a Cloudflare Access policy in front of it (Zero Trust → Access → Applications → Add → Self-hosted, matching `hub.yourdomain.com`, allow by email with One-Time PIN). Each family member authenticates once per device and the app works normally afterward — including as a pinned PWA.
-
-> Note: the service worker and "Add to Home Screen" require HTTPS, which the Cloudflare hostname gives you automatically. On plain LAN HTTP the site still works; it just won't install as an app or cache offline.
-
-## Step 7 — Pin it as an app
-
-- **iPhone/iPad (Safari):** open the site → Share button → **Add to Home Screen**. It launches full-screen with the house icon.
-- **Android (Chrome):** open the site → you'll usually get an "Add Hub to Home screen" banner, or menu (⋮) → **Add to Home screen** → Install.
-
-The last-loaded schedule stays visible even if the tunnel blips; it refreshes automatically whenever the app is opened or brought to the foreground, every 5 minutes while open, and on the ↻ button.
-
----
-
-## Day-2 operations
-
-**Update after changing code:**
-```bash
-cd /opt/household-hub
+cp .env.example .env        # then edit .env and set a real ADMIN_PASSWORD
 docker compose up -d --build
 ```
 
-**Rollback:** the app is stateless, so rollback is just checking out the previous commit in Forgejo and rebuilding. `config.yml` is the only file with your data — keep it out of the repo (it contains secret URLs and the API token).
+The app is now on port 8080. The database and secret key live in `./data/` — back that folder up and you've backed up everything.
 
-**Changing calendars, colors, or people:** edit `config.yml`; changes apply within 30 seconds, no restart.
+## Project layout
 
-**Calendar shows stale data:** Google refreshes secret iCal feeds on its own schedule (typically minutes, occasionally a few hours for newly-added events). The hub also caches feeds for 5 minutes. Both are normal.
-
-**A calendar or the book tracker is unreachable:** the app stays up and shows a small notice at the top naming which feed failed, instead of erroring out.
+```
+app.py                  # all server code: routes, database, auth, Open Library proxy
+templates/              # HTML pages (Jinja2)
+static/css/style.css    # all styling, including the signage view
+static/js/booksearch.js # the admin book-search box
+static/sw.js            # PWA service worker
+static/manifest.webmanifest
+static/icons/           # app icons
+Dockerfile
+docker-compose.yml
+.env.example            # copy to .env, set ADMIN_PASSWORD
+data/                   # created at runtime: bootlegger.db + secret_key (gitignored)
+```
