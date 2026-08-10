@@ -1,67 +1,46 @@
-// Bootlegger service worker
-// Static assets: cache-first. Pages: network-first with cached fallback,
-// so the app opens instantly from the home screen and still shows the
-// last-seen schedule if the connection blips.
-
-const CACHE = 'bootlegger-v1';
-const STATIC_ASSETS = [
-  '/static/css/style.css',
-  '/static/js/booksearch.js',
-  '/static/icons/icon-192.png',
-  '/static/icons/icon-512.png',
-  '/static/manifest.webmanifest',
+/* Household Hub service worker.
+   Static shell: cache-first. Agenda API: network-first with cached fallback,
+   so the last-known schedule still shows if the tunnel blips. */
+const CACHE = "hub-v2";
+const SHELL = [
+  "/",
+  "/static/style.css",
+  "/static/app.js",
+  "/manifest.webmanifest",
+  "/static/icons/icon-192.png",
+  "/static/icons/icon-512.png"
 ];
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(STATIC_ASSETS))
-  );
-  self.skipWaiting();
+self.addEventListener("install", (e) => {
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    )
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  if (request.method !== 'GET') return;
+self.addEventListener("fetch", (e) => {
+  const url = new URL(e.request.url);
+  if (e.request.method !== "GET" || url.origin !== location.origin) return;
 
-  const url = new URL(request.url);
-
-  // Never cache admin/auth or API traffic
-  if (url.pathname.startsWith('/admin') || url.pathname.startsWith('/api') ||
-      url.pathname === '/login' || url.pathname === '/logout') {
-    return;
-  }
-
-  // Static assets: cache-first
-  if (url.origin === location.origin && url.pathname.startsWith('/static/')) {
-    event.respondWith(
-      caches.match(request).then((hit) => hit || fetch(request).then((resp) => {
-        const copy = resp.clone();
-        caches.open(CACHE).then((cache) => cache.put(request, copy));
-        return resp;
-      }))
-    );
-    return;
-  }
-
-  // Same-origin pages: network-first, fall back to the last cached copy
-  if (url.origin === location.origin) {
-    event.respondWith(
-      fetch(request)
+  if (url.pathname.startsWith("/api/")) {
+    e.respondWith(
+      fetch(e.request)
         .then((resp) => {
           const copy = resp.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
           return resp;
         })
-        .catch(() => caches.match(request))
+        .catch(() => caches.match(e.request))
     );
+    return;
   }
+
+  e.respondWith(
+    caches.match(e.request).then((hit) => hit || fetch(e.request))
+  );
 });

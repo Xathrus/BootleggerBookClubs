@@ -1,0 +1,243 @@
+/* Household Hub — wall-calendar palette: sage paper, deep pine, marigold. */
+:root {
+  --paper: #EFF3EF;
+  --surface: #FFFFFF;
+  --ink: #22282A;
+  --ink-soft: #5B6B66;
+  --pine: #24473C;
+  --pine-soft: #E0EAE4;
+  --marigold: #E19A2B;
+  --marigold-soft: #FBF0DC;
+  --line: #DCE4DE;
+  --radius: 14px;
+  --shadow: 0 1px 2px rgba(34, 71, 60, 0.08), 0 4px 14px rgba(34, 71, 60, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #171D1B;
+    --surface: #212A27;
+    --ink: #EAF0EC;
+    --ink-soft: #93A49D;
+    --pine: #2F5B4D;
+    --pine-soft: #24352F;
+    --marigold: #E5A83F;
+    --marigold-soft: #33301F;
+    --line: #2C3833;
+    --shadow: none;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+h1, h2, .daytile, .booktag {
+  font-family: "Bricolage Grotesque", -apple-system, sans-serif;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--pine);
+  color: #F4F8F4;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+}
+
+.topbar h1 { font-size: 20px; font-weight: 800; margin: 0; letter-spacing: 0.2px; }
+
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+
+.updated { font-size: 12px; opacity: 0.75; }
+
+.refresh {
+  background: rgba(255, 255, 255, 0.14);
+  border: none;
+  color: inherit;
+  font-size: 18px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.refresh:active { transform: rotate(90deg); }
+.refresh:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+main { max-width: 640px; margin: 0 auto; padding: 16px 14px 8px; }
+
+.loading, .empty {
+  color: var(--ink-soft);
+  text-align: center;
+  padding: 32px 0;
+}
+
+/* Section header: wall-calendar day tile beside the heading */
+.section { margin-bottom: 26px; }
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.daytile {
+  background: var(--pine);
+  color: #F4F8F4;
+  border-radius: 10px;
+  min-width: 46px;
+  padding: 4px 6px;
+  text-align: center;
+  line-height: 1.05;
+}
+.daytile .dow { display: block; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.85; }
+.daytile .num { display: block; font-size: 22px; font-weight: 800; }
+.daytile.range .num { font-size: 14px; padding: 4px 0; }
+
+.section-head h2 { margin: 0; font-size: 18px; font-weight: 800; }
+.section-head .sub { display: block; font-size: 12px; color: var(--ink-soft); font-weight: 500; }
+
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.event {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.event:last-child { border-bottom: none; }
+.event::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 4px;
+  border-radius: 0 3px 3px 0;
+  background: var(--cal-color, var(--pine));
+}
+
+.event-when {
+  flex: 0 0 84px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  padding-top: 1px;
+}
+.event-when .dayname { display: block; font-weight: 700; color: var(--ink); }
+
+.event-body { min-width: 0; }
+.event-title { font-weight: 600; overflow-wrap: anywhere; }
+.event-meta { font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.caldot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--cal-color, var(--pine)); margin-right: 4px; vertical-align: 1px; }
+
+.nothing {
+  padding: 14px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+/* Book club card */
+.books .card { border-color: color-mix(in srgb, var(--marigold) 45%, var(--line)); }
+.booktag {
+  background: var(--marigold);
+  color: #2B2005;
+  border-radius: 10px;
+  min-width: 46px;
+  padding: 8px 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+.book {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.book:last-child { border-bottom: none; }
+.book-due {
+  flex: 0 0 84px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.book-due strong { display: block; color: var(--ink); }
+.book-title { font-weight: 600; }
+.book-meta { font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; }
+.book-person {
+  display: inline-block;
+  background: var(--marigold-soft);
+  color: var(--ink);
+  border-radius: 20px;
+  padding: 1px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 5px;
+}
+
+/* Meals card */
+.mealtag {
+  background: var(--pine-soft);
+  color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--pine) 30%, transparent);
+  border-radius: 10px;
+  min-width: 46px;
+  padding: 12px 6px;
+  text-align: center;
+  font-family: "Bricolage Grotesque", -apple-system, sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.meal {
+  display: flex;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.meal:last-child { border-bottom: none; }
+.meal-day {
+  flex: 0 0 84px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.meal-items { font-size: 14.5px; min-width: 0; overflow-wrap: anywhere; }
+.mealdot { color: var(--ink-soft); margin: 0 7px; }
+
+.notice {
+  background: var(--marigold-soft);
+  border: 1px solid color-mix(in srgb, var(--marigold) 40%, transparent);
+  border-radius: 10px;
+  color: var(--ink);
+  font-size: 13px;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+}
+
+.foot { text-align: center; color: var(--ink-soft); font-size: 11.5px; padding: 6px 0 18px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .section, .books { animation: rise 0.25s ease both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+}
